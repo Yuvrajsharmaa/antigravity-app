@@ -33,7 +33,6 @@ const HomeStackScreen = () => (
     <HomeStack.Screen name="TherapistProfile" component={TherapistProfileScreen} />
     <HomeStack.Screen name="SlotSelection" component={SlotSelectionScreen} />
     <HomeStack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} />
-    <HomeStack.Screen name="VideoCall" component={VideoCallScreen} />
   </HomeStack.Navigator>
 );
 
@@ -120,7 +119,10 @@ export const AppNavigator: React.FC = () => {
         ) : !profile?.onboarding_completed ? (
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         ) : (
-          <Stack.Screen name="Main" component={MainTabs} />
+          <Stack.Group>
+            <Stack.Screen name="Main" component={MainTabs} />
+            <Stack.Screen name="VideoCall" component={VideoCallScreen} />
+          </Stack.Group>
         )}
       </Stack.Navigator>
     </NavigationContainer>
