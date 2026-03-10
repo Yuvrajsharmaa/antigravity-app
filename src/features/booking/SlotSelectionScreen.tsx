@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +27,8 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
   const [duration, setDuration] = useState(45);
   const [loading, setLoading] = useState(false);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
 
   const dates = getNext7Days();
 
@@ -40,21 +43,36 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
   }, [selectedDate]);
 
   const fetchSlots = async () => {
-    const dayStart = new Date(selectedDate);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(selectedDate);
-    dayEnd.setHours(23, 59, 59, 999);
+    if (!selectedDate) return;
+    setSlotsLoading(true);
+    setSlotsError(null);
+    try {
+      const dayStart = new Date(selectedDate);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(selectedDate);
+      dayEnd.setHours(23, 59, 59, 999);
 
-    const { data } = await supabase
-      .from('availability_slots')
-      .select('*')
-      .eq('therapist_id', therapist.id)
-      .eq('is_available', true)
-      .gte('start_at', dayStart.toISOString())
-      .lte('start_at', dayEnd.toISOString())
-      .order('start_at', { ascending: true });
+      const { data, error } = await supabase
+        .from('availability_slots')
+        .select('*')
+        .eq('therapist_id', therapist.id)
+        .eq('is_available', true)
+        .gte('start_at', dayStart.toISOString())
+        .lte('start_at', dayEnd.toISOString())
+        .order('start_at', { ascending: true });
 
-    if (data) setSlots(data);
+      if (error) throw error;
+      const nextSlots = (data || []) as AvailabilitySlot[];
+      setSlots(nextSlots);
+      setSelectedSlot((prev) => (
+        prev && nextSlots.some((slot) => slot.id === prev.id) ? prev : null
+      ));
+    } catch (err: any) {
+      setSlots([]);
+      setSlotsError(err.message || 'Could not load availability.');
+    } finally {
+      setSlotsLoading(false);
+    }
   };
 
   const groupSlotsByPeriod = () => {
@@ -87,7 +105,7 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
           therapist_id: therapist.id,
           slot_id: selectedSlot.id,
           session_type: 'video',
-          status: 'confirmed',
+          status: 'pending_payment',
           scheduled_start_at: selectedSlot.start_at,
           scheduled_end_at: endAt.toISOString(),
           amount_inr: therapist.session_fee_inr,
@@ -97,32 +115,22 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
 
       if (error) throw error;
 
-      // Mark slot unavailable
-      await supabase
-        .from('availability_slots')
-        .update({ is_available: false })
-        .eq('id', selectedSlot.id);
-
-      // Create session
-      await supabase.from('sessions').insert({
-        booking_id: booking.id,
-        status: 'scheduled',
-        video_call_id: `call_${booking.id.slice(0, 8)}`,
-      });
-
       // Create or get conversation
-      const { data: existingConv } = await supabase
+      const { data: existingConv, error: convFetchError } = await supabase
         .from('conversations')
         .select('id')
         .eq('user_id', user.id)
         .eq('therapist_id', therapist.id)
-        .single();
+        .maybeSingle();
+
+      if (convFetchError) throw convFetchError;
 
       if (!existingConv) {
-        await supabase.from('conversations').insert({
+        const { error: convCreateError } = await supabase.from('conversations').insert({
           user_id: user.id,
           therapist_id: therapist.id,
         });
+        if (convCreateError) throw convCreateError;
       }
 
       navigation.navigate('BookingConfirmation', {
@@ -194,14 +202,38 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
         </View>
 
         {/* Slots */}
-        {renderSlotGroup('Morning', morning, '☀️')}
-        {renderSlotGroup('Afternoon', afternoon, '🌤')}
-        {renderSlotGroup('Evening', evening, '🌙')}
-
-        {slots.length === 0 && (
-          <View style={styles.noSlots}>
-            <Text style={styles.noSlotsText}>No slots available for this day</Text>
+        {slotsLoading ? (
+          <View style={styles.inlineStateCard}>
+            <ActivityIndicator size="small" color={Colors.accent.primary} />
+            <Text style={styles.inlineStateText}>Loading available slots...</Text>
           </View>
+        ) : slotsError ? (
+          <Card style={styles.errorCard}>
+            <View style={styles.errorHeader}>
+              <Ionicons name="alert-circle-outline" size={18} color={Colors.status.danger} />
+              <Text style={styles.errorTitle}>Could not load slots</Text>
+            </View>
+            <Text style={styles.errorMessage}>{slotsError}</Text>
+            <Button
+              title="Retry"
+              variant="secondary"
+              onPress={fetchSlots}
+              fullWidth={false}
+              style={styles.retryButton}
+            />
+          </Card>
+        ) : (
+          <>
+            {renderSlotGroup('Morning', morning, '☀️')}
+            {renderSlotGroup('Afternoon', afternoon, '🌤')}
+            {renderSlotGroup('Evening', evening, '🌙')}
+
+            {slots.length === 0 && (
+              <View style={styles.noSlots}>
+                <Text style={styles.noSlotsText}>No slots available for this day</Text>
+              </View>
+            )}
+          </>
         )}
       </ScrollView>
 
@@ -214,7 +246,7 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
         <Button
           title="Confirm booking"
           onPress={handleBook}
-          disabled={!selectedSlot}
+          disabled={!selectedSlot || slotsLoading || !!slotsError}
           loading={loading}
           size="lg"
         />
@@ -341,6 +373,28 @@ const styles = StyleSheet.create({
   },
   slotText: { ...Typography.captionEmphasis, color: Colors.text.primary },
   slotTextSelected: { color: Colors.text.inverse },
+  inlineStateCard: {
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.bg.secondary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    borderRadius: Radius.lg,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+  },
+  inlineStateText: { ...Typography.body, color: Colors.text.secondary },
+  errorCard: {
+    marginBottom: Spacing.md,
+    gap: Spacing.xs,
+  },
+  errorHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  errorTitle: { ...Typography.bodySemibold, color: Colors.status.danger },
+  errorMessage: { ...Typography.caption, color: Colors.text.secondary, lineHeight: 18 },
+  retryButton: { marginTop: Spacing.xs },
   noSlots: { paddingVertical: Spacing.xxl, alignItems: 'center' },
   noSlotsText: { ...Typography.body, color: Colors.text.tertiary },
   bottomBar: {
