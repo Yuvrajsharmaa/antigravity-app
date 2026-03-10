@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing } from '../../core/theme';
-import { Avatar, EmptyState, LoadingState } from '../../core/components';
+import { Avatar, EmptyState, LoadingState, ErrorState } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
@@ -22,6 +22,8 @@ interface ConversationItem {
   last_message: string | null;
   last_message_at: string | null;
   unread: boolean;
+  awaiting_reply: boolean;
+  recent_mood: string | null;
 }
 
 export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
@@ -29,10 +31,12 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetch = useCallback(async () => {
     if (!user) return;
     try {
+      setLoadError(null);
       // Fetch conversations where user is either the client OR the therapist
       const columnToMatch = isTherapistMode ? 'therapist_id' : 'user_id';
       
@@ -74,18 +78,33 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
             last_message: null,
             last_message_at: c.last_message_at,
             unread: false,
+            awaiting_reply: false,
+            recent_mood: null,
           };
 
           // Fetch last message for each conversation
           const { data: msgs } = await supabase
             .from('messages')
-            .select('body')
+            .select('body,sender_id')
             .eq('conversation_id', convItem.id)
             .order('created_at', { ascending: false })
             .limit(1);
 
           if (msgs && msgs.length > 0) {
             convItem.last_message = msgs[0].body;
+            convItem.awaiting_reply = msgs[0].sender_id !== user.id;
+          }
+
+          if (isTherapistMode && otherId) {
+            const { data: latestMood } = await supabase
+              .from('client_metrics')
+              .select('mood')
+              .eq('user_id', otherId)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            convItem.recent_mood = latestMood?.mood || null;
           }
           mapped.push(convItem);
         }
@@ -94,11 +113,12 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
       }
     } catch (err) {
       console.error(err);
+      setLoadError('Unable to load conversations right now.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user]);
+  }, [isTherapistMode, user]);
 
   useFocusEffect(
     useCallback(() => {
@@ -138,6 +158,16 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
         <Text style={styles.convPreview} numberOfLines={1}>
           {item.last_message || 'Start a conversation'}
         </Text>
+        {(item.awaiting_reply || item.recent_mood) && (
+          <View style={styles.metaRow}>
+            {item.awaiting_reply ? (
+              <Text style={styles.awaitingReply}>Awaiting your reply</Text>
+            ) : null}
+            {item.recent_mood ? (
+              <Text style={styles.recentMood}>Recent mood: {item.recent_mood}</Text>
+            ) : null}
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -148,6 +178,8 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
 
       {loading ? (
         <LoadingState message="Loading conversations..." />
+      ) : loadError ? (
+        <ErrorState message={loadError} onRetry={fetch} />
       ) : conversations.length === 0 ? (
         <EmptyState
           icon="chatbubbles-outline"
@@ -204,6 +236,20 @@ const styles = StyleSheet.create({
     ...Typography.body,
     color: Colors.text.secondary,
     marginTop: 2,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+    marginTop: 4,
+  },
+  awaitingReply: {
+    ...Typography.micro,
+    color: Colors.status.warning,
+  },
+  recentMood: {
+    ...Typography.micro,
+    color: Colors.accent.primary,
   },
   separator: {
     height: 1,

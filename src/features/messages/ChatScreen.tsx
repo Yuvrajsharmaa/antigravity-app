@@ -13,11 +13,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Avatar, Card } from '../../core/components';
+import { Avatar, Card, ErrorState } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { moderateMessage } from '../../core/utils/moderation';
 import { ChatMessage } from '../../core/models/types';
+import { careBuddyLine } from '../../core/utils/careBuddy';
 
 export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
@@ -30,6 +31,7 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({
   const [sending, setSending] = useState(false);
   const [showCrisisCard, setShowCrisisCard] = useState(false);
   const [blockedWarning, setBlockedWarning] = useState('');
+  const [loadError, setLoadError] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
@@ -39,12 +41,18 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({
   }, []);
 
   const fetchMessages = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('messages')
       .select('*')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true });
 
+    if (error) {
+      setLoadError(error.message || 'Unable to load chat.');
+      return;
+    }
+
+    setLoadError(null);
     if (data) setMessages(data as ChatMessage[]);
   };
 
@@ -143,6 +151,17 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({
     );
   };
 
+  if (!conversationId) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <ErrorState
+          message="Conversation details are missing. Return to Messages and open chat again."
+          onRetry={() => navigation.goBack()}
+        />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       {/* Header */}
@@ -181,7 +200,10 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         {/* Messages */}
-        <FlatList
+        {loadError ? (
+          <ErrorState message={loadError} onRetry={fetchMessages} />
+        ) : (
+          <FlatList
           ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
@@ -198,12 +220,19 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({
             </View>
           }
         />
+        )}
 
         {/* Blocked warning */}
         {blockedWarning !== '' && (
           <View style={styles.blockedBanner}>
             <Ionicons name="close-circle" size={16} color={Colors.status.danger} />
             <Text style={styles.blockedText}>{blockedWarning}</Text>
+          </View>
+        )}
+        {blockedWarning === '' && (
+          <View style={styles.coachBanner}>
+            <Ionicons name="leaf-outline" size={14} color={Colors.accent.primary} />
+            <Text style={styles.coachText}>{careBuddyLine('reflect')}</Text>
           </View>
         )}
 
@@ -313,6 +342,19 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
   },
   blockedText: { ...Typography.caption, color: Colors.status.danger, flex: 1 },
+  coachBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.accent.soft,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.xs,
+  },
+  coachText: {
+    ...Typography.caption,
+    color: Colors.accent.dark,
+    flex: 1,
+  },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',

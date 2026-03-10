@@ -10,6 +10,9 @@ import {
   scheduleAdaptiveWellbeingReminders,
   triggerSupportiveNudgeNotification,
 } from '../../../core/utils/wellbeingNotifications';
+import { careBuddyLine } from '../../../core/utils/careBuddy';
+import * as Haptics from 'expo-haptics';
+import { createCareNudgeEvent } from '../../../core/services/careFlowService';
 
 interface DailyCheckInModalProps {
   visible: boolean;
@@ -21,6 +24,7 @@ interface DailyCheckInModalProps {
 }
 
 const MOODS = ['Happy', 'Neutral', 'Sad', 'Anxious', 'Angry'];
+const SLEEP_PRESETS = ['5', '6', '7', '8', '9'];
 
 export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
   visible,
@@ -108,29 +112,29 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
           .select('therapist_id')
           .eq('user_id', user.id);
 
-        const events = (conversations || [])
+        const therapistIds = (conversations || [])
           .map((row) => row.therapist_id)
-          .filter(Boolean)
-          .map((therapistId) => ({
-            user_id: user.id,
-            therapist_id: therapistId,
-            trigger_type: 'care_score_high_risk',
-            risk_level: 'high',
+          .filter((id): id is string => Boolean(id));
+        await Promise.all(
+          therapistIds.map((therapistId) => createCareNudgeEvent({
+            userId: user.id,
+            therapistId,
+            triggerType: 'care_score_high_risk',
+            riskLevel: 'high',
             source: 'system_auto',
-            message_preview: supportiveMessage,
-          }));
-
-        if (events.length > 0) {
-          await supabase.from('care_nudge_events').insert(events);
-        }
+            messagePreview: supportiveMessage,
+          })),
+        );
 
         await triggerSupportiveNudgeNotification();
       }
 
       await scheduleAdaptiveWellbeingReminders(user.id);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       
       onSuccess();
       onClose();
+      Alert.alert('Check-in saved', careBuddyLine('celebrate'));
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Failed to save check-in.');
     } finally {
@@ -159,6 +163,10 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
                 />
               ) : (
                 <>
+                  <View style={styles.buddyCard}>
+                    <Ionicons name="leaf-outline" size={16} color={Colors.accent.primary} />
+                    <Text style={styles.buddyText}>{careBuddyLine('coach')}</Text>
+                  </View>
                   <Text style={styles.label}>How are you feeling today?</Text>
                   <View style={styles.moodRow}>
                     {MOODS.map(m => (
@@ -186,9 +194,20 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
                   </View>
 
                   <Text style={styles.label}>Hours of Sleep</Text>
-                  <TextInput 
+                  <View style={styles.moodRow}>
+                    {SLEEP_PRESETS.map((hours) => (
+                      <TouchableOpacity
+                        key={hours}
+                        style={[styles.moodBtn, sleep === hours && styles.moodBtnActive]}
+                        onPress={() => setSleep(hours)}
+                      >
+                        <Text style={[styles.moodText, sleep === hours && styles.moodTextActive]}>{hours}h</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <TextInput
                     style={styles.input}
-                    placeholder="e.g. 7.5"
+                    placeholder="Custom sleep hours (optional)"
                     placeholderTextColor={Colors.text.tertiary}
                     keyboardType="numeric"
                     value={sleep}
@@ -262,6 +281,23 @@ const styles = StyleSheet.create({
     ...Typography.bodySemibold,
     color: Colors.text.primary,
     marginTop: Spacing.sm,
+  },
+  buddyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.accent.soft,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.accent.primary + '20',
+  },
+  buddyText: {
+    ...Typography.caption,
+    color: Colors.accent.dark,
+    flex: 1,
+    lineHeight: 18,
   },
   moodRow: {
     flexDirection: 'row',

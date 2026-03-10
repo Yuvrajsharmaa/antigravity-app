@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { supabase } from '../../services/supabase';
+import { careBuddyLine } from './careBuddy';
 
 let notificationsInitialized = false;
 
@@ -13,6 +14,9 @@ export interface ReminderPreferences {
   wellbeing_reminder_time: string;
   quiet_hours_start: string;
   quiet_hours_end: string;
+  nudge_snooze_until: string | null;
+  care_buddy_enabled: boolean;
+  engagement_mode: 'gentle' | 'balanced' | 'high';
 }
 
 const toTimeParts = (value: string, fallback: string) => {
@@ -111,7 +115,7 @@ export const ensureNotificationPermission = async () => {
 const loadReminderPreferences = async (userId: string): Promise<ReminderPreferences> => {
   const { data } = await supabase
     .from('user_preferences')
-    .select('wellbeing_reminders_enabled, wellbeing_reminder_time, quiet_hours_start, quiet_hours_end')
+    .select('wellbeing_reminders_enabled, wellbeing_reminder_time, quiet_hours_start, quiet_hours_end, nudge_snooze_until, care_buddy_enabled, engagement_mode')
     .eq('user_id', userId)
     .maybeSingle();
 
@@ -120,6 +124,9 @@ const loadReminderPreferences = async (userId: string): Promise<ReminderPreferen
     wellbeing_reminder_time: data?.wellbeing_reminder_time ?? DEFAULT_REMINDER_TIME,
     quiet_hours_start: data?.quiet_hours_start ?? DEFAULT_QUIET_START,
     quiet_hours_end: data?.quiet_hours_end ?? DEFAULT_QUIET_END,
+    nudge_snooze_until: data?.nudge_snooze_until ?? null,
+    care_buddy_enabled: data?.care_buddy_enabled ?? true,
+    engagement_mode: data?.engagement_mode ?? 'balanced',
   };
 };
 
@@ -196,6 +203,12 @@ export const scheduleAdaptiveWellbeingReminders = async (userId: string) => {
 
   const prefs = await loadReminderPreferences(userId);
   if (!prefs.wellbeing_reminders_enabled) return;
+  if (prefs.nudge_snooze_until) {
+    const snoozeUntil = new Date(prefs.nudge_snooze_until);
+    if (snoozeUntil > new Date()) {
+      return;
+    }
+  }
 
   const metrics = await loadMetricDates(userId);
   const now = new Date();
@@ -232,11 +245,15 @@ export const scheduleAdaptiveWellbeingReminders = async (userId: string) => {
     .slice(0, 2);
 
   const ids: string[] = [];
+  const title = prefs.care_buddy_enabled ? 'Care Buddy check-in' : 'Care Space check-in';
+  const body = prefs.care_buddy_enabled
+    ? careBuddyLine(prefs.engagement_mode === 'gentle' ? 'reassure' : 'coach')
+    : 'A gentle reminder to log your mood and keep your CareScore in sync.';
   for (const date of uniqueDates) {
     if (date <= now) continue;
     const id = await scheduleReminder(
-      'Care Space check-in',
-      'A gentle reminder to log your mood and keep your CareScore in sync.',
+      title,
+      body,
       date,
     );
     ids.push(id);
@@ -253,8 +270,8 @@ export const triggerSupportiveNudgeNotification = async () => {
   if (!hasPermission) return;
 
   await scheduleReminder(
-    'Care Space wellbeing nudge',
-    "You're not alone. A quick mood check-in can help you and your therapist stay aligned.",
+    'Care Buddy wellbeing nudge',
+    careBuddyLine('reassure'),
     new Date(Date.now() + 2000),
   );
 };

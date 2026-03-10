@@ -3,11 +3,12 @@ import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, Alert } 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Card, Button, EmptyState, LoadingState, BackendSetupCard } from '../../core/components';
+import { Card, Button, EmptyState, LoadingState, BackendSetupCard, ErrorState, PillChip } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { useClientMetricsReadiness } from '../../core/hooks/useClientMetricsReadiness';
+import { careBuddyLine } from '../../core/utils/careBuddy';
 
 interface JournalEntry {
   id: string;
@@ -28,6 +29,7 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchJournal = useCallback(async () => {
     if (!user) return;
@@ -38,6 +40,7 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
     }
 
     setLoading(true);
+    setLoadError(null);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -52,7 +55,7 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       .maybeSingle();
 
     if (todayError) {
-      Alert.alert('Journal error', todayError.message || 'Unable to load today\'s check-in.');
+      setLoadError(todayError.message || 'Unable to load today\'s check-in.');
       setLoading(false);
       return;
     }
@@ -68,7 +71,7 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       .order('created_at', { ascending: false });
 
     if (logsError) {
-      Alert.alert('Journal error', logsError.message || 'Unable to load journal entries.');
+      setLoadError(logsError.message || 'Unable to load journal entries.');
       setLoading(false);
       return;
     }
@@ -159,6 +162,21 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
                 <Text style={styles.composeSubtitle}>
                   This saves into today&apos;s check-in. Complete check-in first if this is disabled.
                 </Text>
+                <Text style={styles.buddyHint}>{careBuddyLine('reflect')}</Text>
+                <View style={styles.promptRow}>
+                  {[
+                    'What felt heavy today?',
+                    'What helped even a little?',
+                    'One next step for tomorrow',
+                  ].map((prompt) => (
+                    <PillChip
+                      key={prompt}
+                      label={prompt}
+                      selected={false}
+                      onPress={() => setDraft((prev) => (prev ? `${prev}\n\n${prompt}\n` : `${prompt}\n`))}
+                    />
+                  ))}
+                </View>
                 <TextInput
                   style={styles.input}
                   placeholder="Write about today..."
@@ -183,7 +201,9 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
           </>
         }
         ListEmptyComponent={
-          loading ? (
+          loadError ? (
+            <ErrorState message={loadError} onRetry={fetchJournal} />
+          ) : loading ? (
             <LoadingState message="Loading journal..." />
           ) : (
             <EmptyState
@@ -248,6 +268,15 @@ const styles = StyleSheet.create({
   composeSubtitle: {
     ...Typography.caption,
     color: Colors.text.secondary,
+  },
+  buddyHint: {
+    ...Typography.caption,
+    color: Colors.accent.primary,
+  },
+  promptRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
   },
   input: {
     minHeight: 120,

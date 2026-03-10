@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,17 +7,21 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Card, PillChip, Avatar, EmptyState, LoadingState } from '../../core/components';
+import { Card, PillChip, Avatar, EmptyState, LoadingState, ErrorState } from '../../core/components';
 import { Shadow } from '../../core/theme/spacing';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { Therapist } from '../../core/models/types';
 import { TherapistDashboardScreen } from '../therapist-dashboard/TherapistDashboardScreen';
 import { MentalHealthDashboard } from './components/MentalHealthDashboard';
+import { useCareJourney } from '../../core/hooks/useCareJourney';
+import { careBuddyGreeting, careBuddyLine, journeyStatusCopy } from '../../core/utils/careBuddy';
+import * as Haptics from 'expo-haptics';
 
 const FILTER_OPTIONS = ['All', 'Anxiety', 'Relationships', 'Loneliness', 'Work Stress', 'Self-Esteem', 'Grief'];
 
@@ -28,9 +32,22 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState('All');
+  const [therapistsError, setTherapistsError] = useState<string | null>(null);
+  const [checkInSignal, setCheckInSignal] = useState(0);
+  const {
+    journey,
+    loading: journeyLoading,
+    error: journeyError,
+    refresh: refreshJourney,
+  } = useCareJourney(isTherapistMode ? null : user?.id || null);
+  const journeyCopy = useMemo(
+    () => (journey ? journeyStatusCopy(journey) : null),
+    [journey],
+  );
 
   const fetchTherapists = useCallback(async () => {
     try {
+      setTherapistsError(null);
       let query = supabase
         .from('therapists')
         .select(`
@@ -56,8 +73,9 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         }));
         setTherapists(mapped);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setTherapistsError(err.message || 'Could not load therapists right now.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -126,6 +144,33 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     setRefreshing(true);
     fetchNextSession();
     fetchTherapists();
+    refreshJourney();
+  };
+
+  const handleJourneyGoal = async (goalKey: 'check_in' | 'reflect' | 'connect') => {
+    await Haptics.selectionAsync();
+    if (goalKey === 'check_in') {
+      setCheckInSignal((prev) => prev + 1);
+      return;
+    }
+
+    if (goalKey === 'reflect') {
+      navigation.navigate('Journal');
+      return;
+    }
+
+    navigation.navigate('MessagesTab');
+  };
+
+  const handleNextJourneyAction = async () => {
+    if (!journey) return;
+    const nextGoal = journey.goals.find((goal) => !goal.completed)?.key;
+    if (!nextGoal) {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Lovely consistency', 'You completed all daily care steps. Keep the rhythm gentle.');
+      return;
+    }
+    handleJourneyGoal(nextGoal);
   };
 
   const getGreeting = () => {
@@ -218,7 +263,58 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent.primary} />
             }
           >
-            <MentalHealthDashboard />
+            <MentalHealthDashboard openSignal={checkInSignal} />
+            {journeyLoading ? (
+              <View style={styles.journeyLoadingWrap}>
+                <LoadingState message="Loading Care Buddy..." />
+              </View>
+            ) : journeyError ? (
+              <View style={styles.journeyErrorWrap}>
+                <ErrorState message={journeyError} onRetry={refreshJourney} />
+              </View>
+            ) : journey ? (
+              <Card style={styles.journeyCard}>
+                <View style={styles.journeyHeader}>
+                  <View style={styles.journeyIcon}>
+                    <Ionicons name="leaf-outline" size={20} color={Colors.accent.primary} />
+                  </View>
+                  <View style={styles.journeyHeaderText}>
+                    <Text style={styles.journeyTitle}>{journeyCopy?.title || 'Daily Care Journey'}</Text>
+                    <Text style={styles.journeySubtitle}>{careBuddyGreeting(profile?.first_name)}</Text>
+                  </View>
+                  <View style={styles.journeyRhythmBadge}>
+                    <Text style={styles.journeyRhythmText}>{journey.rhythmDays}d rhythm</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.journeySupportText}>{journeyCopy?.subtitle || careBuddyLine('coach')}</Text>
+
+                <View style={styles.journeyGoalRow}>
+                  {journey.goals.map((goal) => (
+                    <TouchableOpacity
+                      key={goal.key}
+                      style={[styles.journeyGoalChip, goal.completed && styles.journeyGoalChipDone]}
+                      onPress={() => handleJourneyGoal(goal.key)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons
+                        name={goal.completed ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={16}
+                        color={goal.completed ? Colors.status.success : Colors.text.tertiary}
+                      />
+                      <Text style={[styles.journeyGoalText, goal.completed && styles.journeyGoalTextDone]}>
+                        {goal.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <TouchableOpacity style={styles.journeyActionBtn} onPress={handleNextJourneyAction} activeOpacity={0.85}>
+                  <Text style={styles.journeyActionText}>Next: {journey.nextActionLabel}</Text>
+                  <Ionicons name="arrow-forward" size={16} color={Colors.text.inverse} />
+                </TouchableOpacity>
+              </Card>
+            ) : null}
             {nextSession && (
               <Card style={styles.nextSessionCard}>
                 <View style={styles.nextSessionHeader}>
@@ -308,6 +404,8 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         {/* Therapist list */}
         {loading ? (
           <LoadingState message="Finding therapists..." />
+        ) : therapistsError ? (
+          <ErrorState message={therapistsError} onRetry={fetchTherapists} />
         ) : therapists.length === 0 ? (
           <EmptyState
             icon="search-outline"
@@ -469,6 +567,105 @@ const styles = StyleSheet.create({
     marginHorizontal: Spacing.xl,
     marginTop: Spacing.md,
     gap: Spacing.sm,
+  },
+  journeyLoadingWrap: {
+    minHeight: 120,
+    marginHorizontal: Spacing.xl,
+  },
+  journeyErrorWrap: {
+    minHeight: 120,
+    marginHorizontal: Spacing.xl,
+  },
+  journeyCard: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.md,
+    backgroundColor: Colors.accent.soft,
+    borderColor: Colors.accent.primary + '20',
+    gap: Spacing.sm,
+    ...Shadow.subtle,
+  },
+  journeyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  journeyIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: Colors.bg.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+  },
+  journeyHeaderText: {
+    flex: 1,
+  },
+  journeyTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+  },
+  journeySubtitle: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginTop: 1,
+  },
+  journeyRhythmBadge: {
+    backgroundColor: Colors.bg.primary,
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+  },
+  journeyRhythmText: {
+    ...Typography.micro,
+    color: Colors.accent.primary,
+  },
+  journeySupportText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    lineHeight: 18,
+  },
+  journeyGoalRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  journeyGoalChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.stroke.medium,
+    backgroundColor: Colors.bg.primary,
+    paddingVertical: Spacing.xs,
+  },
+  journeyGoalChipDone: {
+    borderColor: Colors.status.success + '35',
+    backgroundColor: Colors.status.successSoft,
+  },
+  journeyGoalText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
+  journeyGoalTextDone: {
+    color: Colors.status.success,
+  },
+  journeyActionBtn: {
+    marginTop: Spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.accent.primary,
+    borderRadius: Radius.lg,
+    paddingVertical: Spacing.sm,
+  },
+  journeyActionText: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.inverse,
   },
   nextSessionHeader: {
     flexDirection: 'row',

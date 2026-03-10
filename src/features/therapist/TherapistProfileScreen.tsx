@@ -10,9 +10,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Button, Card, Avatar, PillChip } from '../../core/components';
+import { Button, Card, Avatar, PillChip, LoadingState, ErrorState } from '../../core/components';
 import { Therapist, AvailabilitySlot } from '../../core/models/types';
 import { supabase } from '../../services/supabase';
+import { careBuddyLine } from '../../core/utils/careBuddy';
 
 export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
@@ -20,26 +21,38 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
 }) => {
   const { therapist } = route.params as { therapist: Therapist };
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(true);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSlots();
   }, []);
 
   const fetchSlots = async () => {
+    setSlotsLoading(true);
+    setSlotsError(null);
     const now = new Date().toISOString();
     const weekLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     
-    const { data } = await supabase
-      .from('availability_slots')
-      .select('*')
-      .eq('therapist_id', therapist.id)
-      .eq('is_available', true)
-      .gte('start_at', now)
-      .lte('start_at', weekLater)
-      .order('start_at', { ascending: true })
-      .limit(6);
+    try {
+      const { data, error } = await supabase
+        .from('availability_slots')
+        .select('*')
+        .eq('therapist_id', therapist.id)
+        .eq('is_available', true)
+        .gte('start_at', now)
+        .lte('start_at', weekLater)
+        .order('start_at', { ascending: true })
+        .limit(6);
 
-    if (data) setSlots(data);
+      if (error) throw error;
+      setSlots(data || []);
+    } catch (error: any) {
+      setSlots([]);
+      setSlotsError(error.message || 'Could not load availability.');
+    } finally {
+      setSlotsLoading(false);
+    }
   };
 
   const formatTime = (dateStr: string) => {
@@ -125,8 +138,24 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
           </View>
         </Card>
 
+        <Card style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>What working together feels like</Text>
+          <Text style={styles.fitCopy}>
+            {therapist.headline || 'Supportive and structured care.'} Your first session focuses on understanding context, not rushing conclusions.
+          </Text>
+          <Text style={styles.fitHint}>{careBuddyLine('reassure')}</Text>
+        </Card>
+
         {/* Availability preview */}
-        {slots.length > 0 && (
+        {slotsLoading ? (
+          <View style={styles.availabilityState}>
+            <LoadingState message="Checking available slots..." />
+          </View>
+        ) : slotsError ? (
+          <View style={styles.availabilityState}>
+            <ErrorState message={slotsError} onRetry={fetchSlots} />
+          </View>
+        ) : slots.length > 0 && (
           <Card style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>Available soon</Text>
             <View style={styles.slotsGrid}>
@@ -237,6 +266,19 @@ const styles = StyleSheet.create({
     ...Typography.body,
     color: Colors.text.primary,
     lineHeight: 24,
+  },
+  availabilityState: {
+    minHeight: 120,
+  },
+  fitCopy: {
+    ...Typography.body,
+    color: Colors.text.primary,
+    lineHeight: 22,
+  },
+  fitHint: {
+    ...Typography.caption,
+    color: Colors.accent.primary,
+    marginTop: Spacing.xs,
   },
   specialtiesRow: {
     flexDirection: 'row',

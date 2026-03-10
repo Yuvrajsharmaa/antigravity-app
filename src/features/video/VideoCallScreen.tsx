@@ -9,9 +9,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Avatar, Card } from '../../core/components';
+import { Avatar, Card, ErrorState } from '../../core/components';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../core/context/AuthContext';
+import { completeSessionAndBooking } from '../../core/services/careFlowService';
+import { asDependencyState, dependenciesReady, describeBlockingDependency } from '../../core/utils/flowDependencies';
+import { careBuddyLine } from '../../core/utils/careBuddy';
 
 export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
@@ -57,8 +60,13 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
   };
 
   const startCall = async () => {
-    if (!session.id) {
-      Alert.alert('Unavailable', 'This session is not ready to join yet.');
+    const dependencies = [
+      asDependencyState('session_id', 'Session room', Boolean(session?.id), 'Ask therapist to confirm booking first.'),
+      asDependencyState('booking_id', 'Booking details', Boolean(session?.booking_id), 'Refresh sessions and try again.'),
+      asDependencyState('participant', 'Participant', Boolean(participantName), 'Re-open this call from sessions.'),
+    ];
+    if (!dependenciesReady(dependencies)) {
+      Alert.alert('Unavailable', describeBlockingDependency(dependencies) || 'This session is not ready to join yet.');
       return;
     }
 
@@ -94,21 +102,16 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
     if (timerRef.current) clearInterval(timerRef.current);
     setCallState('ended');
 
-    if (session.id) {
-      await supabase
-        .from('sessions')
-        .update({
-          status: 'completed',
-          ended_at: new Date().toISOString(),
-        })
-        .eq('id', session.id);
-    }
-
-    if (session.booking_id) {
-      await supabase
-        .from('bookings')
-        .update({ status: 'completed' })
-        .eq('id', session.booking_id);
+    try {
+      await completeSessionAndBooking({
+        sessionId: session.id,
+        bookingId: session.booking_id,
+      });
+    } catch (error: any) {
+      Alert.alert(
+        'Session ended locally',
+        error?.message || 'Call ended, but sync failed. Please refresh sessions.',
+      );
     }
   };
 
@@ -133,6 +136,9 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
               ? 'Wrap up with a quick follow-up action.'
               : 'Take 30 seconds to capture your post-session reflection.'}
           </Text>
+          {!isTherapistMode ? (
+            <Text style={styles.buddyLine}>{careBuddyLine('reflect')}</Text>
+          ) : null}
 
           <View style={styles.endedActions}>
             <TouchableOpacity
@@ -158,6 +164,17 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
   }
 
   if (callState === 'waiting') {
+    if (!session?.participant_name && !session?.therapist_name) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <ErrorState
+            message="Session details are incomplete. Go back and open this call from Sessions."
+            onRetry={() => navigation.goBack()}
+          />
+        </SafeAreaView>
+      );
+    }
+
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.waitingContainer}>
@@ -480,6 +497,12 @@ const styles = StyleSheet.create({
   endedIcon: { marginBottom: Spacing.lg },
   endedTitle: { ...Typography.title1, color: Colors.text.primary, marginBottom: Spacing.xs },
   endedSubtitle: { ...Typography.body, color: Colors.text.secondary, textAlign: 'center', lineHeight: 22 },
+  buddyLine: {
+    ...Typography.body,
+    color: Colors.accent.primary,
+    textAlign: 'center',
+    marginTop: Spacing.md,
+  },
   endedActions: {
     flexDirection: 'row',
     gap: Spacing.sm,

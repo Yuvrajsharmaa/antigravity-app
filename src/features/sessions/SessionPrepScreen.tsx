@@ -2,12 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Avatar, Button, Card } from '../../core/components';
+import { Avatar, Button, Card, ErrorState } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { RiskLevel } from '../../core/models/types';
 import { Colors, Radius, Spacing, Typography } from '../../core/theme';
 import { assessCareRisk } from '../../core/utils/careRisk';
 import { supabase } from '../../services/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface SessionPrepPayload {
   id: string | null;
@@ -53,6 +54,29 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
     sleep: null,
     note: null,
   });
+
+  useEffect(() => {
+    if (!session?.booking_id || isTherapistMode) return;
+    const key = `care_space_session_prep_${session.booking_id}`;
+    AsyncStorage.getItem(key)
+      .then((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as { agenda?: string; feeling?: string | null };
+        if (parsed.agenda) setAgenda(parsed.agenda);
+        if (parsed.feeling) setFeeling(parsed.feeling);
+      })
+      .catch(() => {
+        // Best effort cache.
+      });
+  }, [isTherapistMode, session?.booking_id]);
+
+  useEffect(() => {
+    if (!session?.booking_id || isTherapistMode) return;
+    const key = `care_space_session_prep_${session.booking_id}`;
+    AsyncStorage.setItem(key, JSON.stringify({ agenda, feeling })).catch(() => {
+      // Best effort cache.
+    });
+  }, [agenda, feeling, isTherapistMode, session?.booking_id]);
 
   useEffect(() => {
     const target = new Date(session.scheduled_start_at).getTime() - 5 * 60 * 1000;
@@ -120,6 +144,11 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
 
   const joinAvailable = session.booking_status ? session.booking_status === 'confirmed' : true;
   const joinWindowOpen = secondsToWindow <= 0;
+  const readinessText = !joinAvailable
+    ? 'Awaiting therapist confirmation'
+    : joinWindowOpen
+      ? 'Session ready to join'
+      : 'Join available 5 minutes before start';
 
   const countdownLabel = useMemo(() => {
     if (joinWindowOpen) return 'Join window is open';
@@ -150,6 +179,13 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
+      {!session?.booking_id ? (
+        <ErrorState
+          message="Session prep data is missing. Please return to Sessions and reopen this card."
+          onRetry={() => navigation.goBack()}
+        />
+      ) : (
+        <>
       <View style={styles.header}>
         <Button title="Back" variant="ghost" fullWidth={false} onPress={() => navigation.goBack()} />
         <Text style={styles.title}>Session Prep</Text>
@@ -172,6 +208,11 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
         <Card style={styles.countdownCard}>
           <Ionicons name={joinWindowOpen ? 'checkmark-circle-outline' : 'time-outline'} size={18} color={Colors.accent.primary} />
           <Text style={styles.countdownText}>{countdownLabel}</Text>
+        </Card>
+
+        <Card style={styles.readinessCard}>
+          <Ionicons name={joinAvailable ? 'leaf-outline' : 'hourglass-outline'} size={16} color={Colors.accent.primary} />
+          <Text style={styles.readinessText}>{readinessText}</Text>
         </Card>
 
         {!isTherapistMode ? (
@@ -258,6 +299,8 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
           disabled={!joinAvailable || !joinWindowOpen}
         />
       </View>
+      </>
+      )}
     </SafeAreaView>
   );
 };
@@ -332,6 +375,16 @@ const styles = StyleSheet.create({
     ...Typography.body,
     color: Colors.accent.dark,
     flex: 1,
+  },
+  readinessCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.bg.secondary,
+  },
+  readinessText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
   },
   sectionTitle: {
     ...Typography.bodySemibold,

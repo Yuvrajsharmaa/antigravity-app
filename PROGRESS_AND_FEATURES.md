@@ -41,6 +41,69 @@ Build **"Care Space"**, a comprehensive psychological consultation platform wher
 
 ## 📈 Recent Updates Log (Changelog)
 
+- **[Codex AGENT] - March 10, 2026 (Personality-Rich UX + Dependency Hardening Sprint)**
+  - Added shared reliability layer:
+    - New `src/core/services/careFlowService.ts` with reusable actions:
+      - `ensureConversation`
+      - `ensureSessionForBooking`
+      - `confirmBookingAndEnsureSession`
+      - `createCareNudgeEvent`
+      - `completeSessionAndBooking`
+    - New `src/core/utils/flowDependencies.ts` for dependency gating (`ready/missing/recoverable`) and actionable blocker messaging.
+  - Added personality/engagement system primitives:
+    - New `src/core/utils/careBuddy.ts` with voice packs (`celebrate`, `coach`, `reassure`, `reflect`) and context helpers.
+    - New `src/core/hooks/useCareJourney.ts` for daily journey progress (`Check-in`, `Reflect`, `Connect`) and weekly rhythm scoring.
+  - Extended frontend contracts in `src/core/models/types.ts`:
+    - `CareJourneyState`, `FlowDependencyState`, `ConversationHealthState`.
+    - `UserPreferences` additions: `engagement_mode`, `nudge_snooze_until`, `care_buddy_enabled`.
+  - Added Supabase migration + schema sync for personality preferences:
+    - `supabase/migrations/20260310235500_care_buddy_preferences.sql`
+    - Synced `supabase/schema.sql` `user_preferences` with `engagement_mode`, `nudge_snooze_until`, `care_buddy_enabled`.
+  - Home/client experience upgrade (`src/features/home/HomeScreen.tsx`):
+    - Added dynamic **Daily Care Journey** card with Care Buddy voice, goal chips, and next-best-action CTA.
+    - Added check-in trigger bridge into dashboard modal (`openSignal`) and haptic feedback for goal taps.
+    - Added canonical therapist discovery error/retry state (`ErrorState`) instead of silent failures.
+  - Check-in/dashboard UX improvements:
+    - `src/features/home/components/MentalHealthDashboard.tsx`: external quick-open signal support for check-in modal.
+    - `src/features/home/components/DailyCheckInModal.tsx`:
+      - Care Buddy coaching copy.
+      - Sleep preset chips + optional custom input.
+      - Success haptics and celebratory copy.
+      - Migrated auto-risk nudge event writes to shared `createCareNudgeEvent`.
+  - Reliability integration in booking/session flows:
+    - `src/features/booking/SlotSelectionScreen.tsx`: dependency guard messaging + shared `ensureConversation`.
+    - `src/features/sessions/SessionsScreen.tsx`: shared confirm chain via `confirmBookingAndEnsureSession` + explicit load error/retry state.
+    - `src/features/video/VideoCallScreen.tsx`: dependency checks before join, shared completion sync via `completeSessionAndBooking`, and fallback recovery UI.
+    - `src/features/sessions/SessionPrepScreen.tsx`: session prep state persistence (agenda/feeling) using AsyncStorage + explicit readiness card.
+    - `src/features/sessions/PostSessionReflectionScreen.tsx`: shared conversation/nudge services + reflective Care Buddy prompt + success haptics.
+  - Therapist and messaging UX refinements:
+    - `src/features/therapist-dashboard/TherapistDashboardScreen.tsx`:
+      - Uses shared booking confirm chain.
+      - Nudge template now prefills from Care Buddy risk-aware copy.
+      - Manual nudge actions now persist `care_nudge_events` via shared service.
+    - `src/features/messages/MessagesListScreen.tsx`:
+      - Added canonical load error/retry.
+      - Added conversation health hints (`Awaiting your reply`, therapist-side recent mood label).
+    - `src/features/messages/ChatScreen.tsx`:
+      - Added route dependency guard for missing conversation payload.
+      - Added load error/retry state.
+      - Added subtle Care Buddy reflection coach banner.
+  - Discovery/profile and notification refinement:
+    - `src/features/therapist/TherapistProfileScreen.tsx`:
+      - Added availability loading/error states.
+      - Added “What working together feels like” expectation-setting section.
+    - `src/features/profile/NotificationsScreen.tsx`:
+      - Added Care Buddy toggle and engagement mode control.
+      - Added nudge snooze actions (`Today`, `48h`, `This week`, `Resume now`).
+      - Persists `care_buddy_enabled`, `engagement_mode`, `nudge_snooze_until` to `user_preferences`.
+    - `src/core/utils/wellbeingNotifications.ts` updated to:
+      - Respect `nudge_snooze_until`.
+      - Personalize reminder copy with Care Buddy voice.
+  - Onboarding refinement:
+    - `src/features/onboarding/OnboardingScreen.tsx`:
+      - Added local onboarding resume (`step` restore/save via AsyncStorage by user+role).
+      - Added Care Buddy settings in onboarding (`care_buddy_enabled`, `engagement_mode`) and persists to preferences.
+
 - **[Codex AGENT] - March 10, 2026 (Onboarding Reachability + Full-Screen Welcome Pass)**
   - Updated `src/features/onboarding/OnboardingScreen.tsx` to improve first-run usability and one-hand reach:
     - Made onboarding step 1 (welcome) full-screen-style with dynamic viewport height sizing.

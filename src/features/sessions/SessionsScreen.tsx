@@ -11,10 +11,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Card, Avatar, EmptyState, LoadingState, Button } from '../../core/components';
+import { Card, Avatar, EmptyState, LoadingState, Button, ErrorState } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
+import { confirmBookingAndEnsureSession } from '../../core/services/careFlowService';
+import { asDependencyState, describeBlockingDependency, dependenciesReady } from '../../core/utils/flowDependencies';
 
 interface SessionItem {
   booking_id: string;
@@ -45,6 +47,7 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     const desiredTab = route?.params?.initialTab;
@@ -57,6 +60,7 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
     if (!user) return;
 
     try {
+      setLoadError(null);
       let mapped: SessionItem[] = [];
 
       if (isTherapistMode) {
@@ -150,7 +154,7 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
       setSessions(filtered);
     } catch (err) {
       console.error(err);
-      Alert.alert('Error', 'Unable to load sessions right now.');
+      setLoadError('Unable to load sessions right now.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -173,8 +177,22 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
   };
 
   const confirmBooking = async (item: SessionItem) => {
-    if (!item.slot_id) {
-      Alert.alert('Cannot confirm', 'This booking does not have a linked availability slot.');
+    const deps = [
+      asDependencyState(
+        'booking_id',
+        'Booking reference',
+        Boolean(item.booking_id),
+        'Refresh and open this booking again.',
+      ),
+      asDependencyState(
+        'slot_id',
+        'Availability slot',
+        Boolean(item.slot_id),
+        'Ask the client to rebook a valid slot.',
+      ),
+    ];
+    if (!dependenciesReady(deps)) {
+      Alert.alert('Cannot confirm', describeBlockingDependency(deps) || 'Missing required dependency.');
       return;
     }
 
@@ -195,58 +213,10 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
         return;
       }
 
-      const { data: slot, error: slotError } = await supabase
-        .from('availability_slots')
-        .select('id, is_available')
-        .eq('id', liveBooking.slot_id)
-        .maybeSingle();
-
-      if (slotError) throw slotError;
-      if (!slot?.is_available) {
-        throw new Error('This slot is no longer available. Ask the client to choose another slot.');
-      }
-
-      const { data: slotLock, error: slotLockError } = await supabase
-        .from('availability_slots')
-        .update({ is_available: false })
-        .eq('id', liveBooking.slot_id)
-        .eq('is_available', true)
-        .select('id')
-        .maybeSingle();
-
-      if (slotLockError) throw slotLockError;
-      if (!slotLock) {
-        throw new Error('This slot was just reserved by another booking.');
-      }
-
-      const { data: confirmedBooking, error: confirmError } = await supabase
-        .from('bookings')
-        .update({ status: 'confirmed', updated_at: new Date().toISOString() })
-        .eq('id', item.booking_id)
-        .eq('status', 'pending_payment')
-        .select('id')
-        .maybeSingle();
-
-      if (confirmError) throw confirmError;
-      if (!confirmedBooking) throw new Error('Booking could not be confirmed.');
-
-      const { data: existingSession, error: existingSessionError } = await supabase
-        .from('sessions')
-        .select('id')
-        .eq('booking_id', item.booking_id)
-        .maybeSingle();
-
-      if (existingSessionError) throw existingSessionError;
-
-      if (!existingSession) {
-        const { error: createSessionError } = await supabase.from('sessions').insert({
-          booking_id: item.booking_id,
-          status: 'scheduled',
-          video_call_id: `call_${item.booking_id.slice(0, 8)}`,
-        });
-
-        if (createSessionError) throw createSessionError;
-      }
+      await confirmBookingAndEnsureSession({
+        bookingId: item.booking_id,
+        slotId: liveBooking.slot_id,
+      });
 
       Alert.alert('Booking confirmed', 'The client can now join this session.');
       await fetchSessions();
@@ -398,6 +368,14 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
 
       {loading ? (
         <LoadingState message="Loading sessions..." />
+      ) : loadError ? (
+        <ErrorState
+          message={loadError}
+          onRetry={() => {
+            setLoading(true);
+            fetchSessions();
+          }}
+        />
       ) : sessions.length === 0 ? (
         <EmptyState
           icon={tab === 'upcoming' ? 'calendar-outline' : 'time-outline'}
