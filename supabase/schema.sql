@@ -171,6 +171,8 @@ CREATE POLICY "slots_update" ON public.availability_slots FOR UPDATE USING (true
 CREATE POLICY "bookings_select_own" ON public.bookings FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "bookings_insert_own" ON public.bookings FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "bookings_update_own" ON public.bookings FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "bookings_select_therapist" ON public.bookings FOR SELECT USING (auth.uid() = therapist_id);
+CREATE POLICY "bookings_update_therapist" ON public.bookings FOR UPDATE USING (auth.uid() = therapist_id);
 
 -- Sessions: via booking
 CREATE POLICY "sessions_select" ON public.sessions FOR SELECT USING (true);

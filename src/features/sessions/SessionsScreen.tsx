@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -6,93 +6,146 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Card, Avatar, EmptyState, LoadingState } from '../../core/components';
-import { Shadow } from '../../core/theme/spacing';
+import { Card, Avatar, EmptyState, LoadingState, Button } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 
 interface SessionItem {
-  id: string;
   booking_id: string;
-  status: string;
+  slot_id: string | null;
+  booking_status: 'pending_payment' | 'confirmed' | 'cancelled' | 'completed' | 'failed';
   scheduled_start_at: string;
   scheduled_end_at: string;
-  therapist_name: string;
-  therapist_headline: string;
-  therapist_avatar: string | null;
+  participant_name: string;
+  participant_avatar: string | null;
+  participant_subtitle: string;
   amount_inr: number;
-  session_type: string;
+  session_type: 'video' | 'chat';
+  session_id: string | null;
+  session_status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | null;
   video_call_id: string | null;
 }
 
+const getFirst = <T,>(value: T | T[] | null | undefined): T | undefined => {
+  if (!value) return undefined;
+  return Array.isArray(value) ? value[0] : value;
+};
+
 export const SessionsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { user } = useAuth();
+  const { user, isTherapistMode } = useAuth();
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   const fetchSessions = useCallback(async () => {
     if (!user) return;
+
     try {
-      const now = new Date().toISOString();
+      let mapped: SessionItem[] = [];
 
-      const query = supabase
-        .from('sessions')
-        .select(`
-          id, status, video_call_id, created_at,
-          bookings!inner (
-            id, scheduled_start_at, scheduled_end_at, amount_inr, session_type,
-            therapists!inner (
-              id,
-              profiles!inner (display_name, avatar_url)
+      if (isTherapistMode) {
+        const { data, error } = await supabase
+          .from('bookings')
+          .select(`
+            id, slot_id, status, scheduled_start_at, scheduled_end_at, amount_inr, session_type,
+            users:user_id (display_name, first_name, avatar_url),
+            sessions (id, status, video_call_id)
+          `)
+          .eq('therapist_id', user.id);
+
+        if (error) throw error;
+
+        mapped = (data || []).map((booking: any) => {
+          const participant = getFirst<any>(booking.users);
+          const session = getFirst<any>(booking.sessions);
+
+          return {
+            booking_id: booking.id,
+            slot_id: booking.slot_id,
+            booking_status: booking.status,
+            scheduled_start_at: booking.scheduled_start_at,
+            scheduled_end_at: booking.scheduled_end_at,
+            participant_name: participant?.display_name || participant?.first_name || 'Client',
+            participant_avatar: participant?.avatar_url || null,
+            participant_subtitle: 'Client',
+            amount_inr: booking.amount_inr,
+            session_type: booking.session_type,
+            session_id: session?.id || null,
+            session_status: session?.status || null,
+            video_call_id: session?.video_call_id || null,
+          } as SessionItem;
+        });
+      } else {
+        const { data, error } = await supabase
+          .from('bookings')
+          .select(`
+            id, slot_id, status, scheduled_start_at, scheduled_end_at, amount_inr, session_type,
+            therapists:therapist_id (
+              headline,
+              profiles (display_name, avatar_url)
             ),
-            therapist_id
-          )
-        `)
-        .eq('bookings.user_id', user.id);
+            sessions (id, status, video_call_id)
+          `)
+          .eq('user_id', user.id);
 
-      const { data, error } = await query;
+        if (error) throw error;
 
-      if (!error && data) {
-        const mapped: SessionItem[] = data.map((s: any) => ({
-          id: s.id,
-          booking_id: s.bookings.id,
-          status: s.status,
-          scheduled_start_at: s.bookings.scheduled_start_at,
-          scheduled_end_at: s.bookings.scheduled_end_at,
-          therapist_name: s.bookings.therapists?.profiles?.display_name || 'Therapist',
-          therapist_headline: '',
-          therapist_avatar: s.bookings.therapists?.profiles?.avatar_url,
-          amount_inr: s.bookings.amount_inr,
-          session_type: s.bookings.session_type,
-          video_call_id: s.video_call_id,
-        }));
+        mapped = (data || []).map((booking: any) => {
+          const therapist = getFirst<any>(booking.therapists);
+          const profile = getFirst<any>(therapist?.profiles);
+          const session = getFirst<any>(booking.sessions);
 
-        const filtered = tab === 'upcoming'
-          ? mapped.filter((m) => ['scheduled', 'in_progress'].includes(m.status))
-          : mapped.filter((m) => ['completed', 'cancelled'].includes(m.status));
-
-        filtered.sort((a, b) =>
-          tab === 'upcoming'
-            ? new Date(a.scheduled_start_at).getTime() - new Date(b.scheduled_start_at).getTime()
-            : new Date(b.scheduled_start_at).getTime() - new Date(a.scheduled_start_at).getTime()
-        );
-
-        setSessions(filtered);
+          return {
+            booking_id: booking.id,
+            slot_id: booking.slot_id,
+            booking_status: booking.status,
+            scheduled_start_at: booking.scheduled_start_at,
+            scheduled_end_at: booking.scheduled_end_at,
+            participant_name: profile?.display_name || 'Therapist',
+            participant_avatar: profile?.avatar_url || null,
+            participant_subtitle: therapist?.headline || 'Therapist',
+            amount_inr: booking.amount_inr,
+            session_type: booking.session_type,
+            session_id: session?.id || null,
+            session_status: session?.status || null,
+            video_call_id: session?.video_call_id || null,
+          } as SessionItem;
+        });
       }
+
+      const isPast = (item: SessionItem) => {
+        if (['completed', 'cancelled', 'failed'].includes(item.booking_status)) return true;
+        if (item.session_status && ['completed', 'cancelled'].includes(item.session_status)) return true;
+        return false;
+      };
+
+      const filtered = tab === 'upcoming'
+        ? mapped.filter((m) => !isPast(m))
+        : mapped.filter((m) => isPast(m));
+
+      filtered.sort((a, b) =>
+        tab === 'upcoming'
+          ? new Date(a.scheduled_start_at).getTime() - new Date(b.scheduled_start_at).getTime()
+          : new Date(b.scheduled_start_at).getTime() - new Date(a.scheduled_start_at).getTime()
+      );
+
+      setSessions(filtered);
     } catch (err) {
       console.error(err);
+      Alert.alert('Error', 'Unable to load sessions right now.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user, tab]);
+  }, [isTherapistMode, tab, user]);
 
   useFocusEffect(
     useCallback(() => {
@@ -101,10 +154,97 @@ export const SessionsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
     }, [fetchSessions])
   );
 
-  const canJoin = (session: SessionItem) => {
-    // For the prototype, allow joining any scheduled or in-progress session 
-    // regardless of the strict time bounds so it can be easily demonstrated.
-    return ['scheduled', 'in_progress'].includes(session.status);
+  const canJoin = (item: SessionItem) => {
+    if (item.session_type !== 'video') return false;
+    if (item.booking_status !== 'confirmed') return false;
+    if (!item.session_id) return false;
+    if (item.session_status && ['completed', 'cancelled'].includes(item.session_status)) return false;
+    return true;
+  };
+
+  const confirmBooking = async (item: SessionItem) => {
+    if (!item.slot_id) {
+      Alert.alert('Cannot confirm', 'This booking does not have a linked availability slot.');
+      return;
+    }
+
+    setActionLoadingId(item.booking_id);
+    try {
+      const { data: liveBooking, error: liveBookingError } = await supabase
+        .from('bookings')
+        .select('id, status, slot_id')
+        .eq('id', item.booking_id)
+        .maybeSingle();
+
+      if (liveBookingError) throw liveBookingError;
+      if (!liveBooking) throw new Error('Booking not found.');
+
+      if (liveBooking.status !== 'pending_payment') {
+        Alert.alert('Already updated', 'This booking is no longer awaiting confirmation.');
+        await fetchSessions();
+        return;
+      }
+
+      const { data: slot, error: slotError } = await supabase
+        .from('availability_slots')
+        .select('id, is_available')
+        .eq('id', liveBooking.slot_id)
+        .maybeSingle();
+
+      if (slotError) throw slotError;
+      if (!slot?.is_available) {
+        throw new Error('This slot is no longer available. Ask the client to choose another slot.');
+      }
+
+      const { data: slotLock, error: slotLockError } = await supabase
+        .from('availability_slots')
+        .update({ is_available: false })
+        .eq('id', liveBooking.slot_id)
+        .eq('is_available', true)
+        .select('id')
+        .maybeSingle();
+
+      if (slotLockError) throw slotLockError;
+      if (!slotLock) {
+        throw new Error('This slot was just reserved by another booking.');
+      }
+
+      const { data: confirmedBooking, error: confirmError } = await supabase
+        .from('bookings')
+        .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+        .eq('id', item.booking_id)
+        .eq('status', 'pending_payment')
+        .select('id')
+        .maybeSingle();
+
+      if (confirmError) throw confirmError;
+      if (!confirmedBooking) throw new Error('Booking could not be confirmed.');
+
+      const { data: existingSession, error: existingSessionError } = await supabase
+        .from('sessions')
+        .select('id')
+        .eq('booking_id', item.booking_id)
+        .maybeSingle();
+
+      if (existingSessionError) throw existingSessionError;
+
+      if (!existingSession) {
+        const { error: createSessionError } = await supabase.from('sessions').insert({
+          booking_id: item.booking_id,
+          status: 'scheduled',
+          video_call_id: `call_${item.booking_id.slice(0, 8)}`,
+        });
+
+        if (createSessionError) throw createSessionError;
+      }
+
+      Alert.alert('Booking confirmed', 'The client can now join this session.');
+      await fetchSessions();
+    } catch (err: any) {
+      Alert.alert('Confirmation failed', err.message || 'Something went wrong while confirming.');
+    } finally {
+      setActionLoadingId(null);
+    }
   };
 
   const formatDateTime = (dateStr: string) => {
@@ -112,31 +252,37 @@ export const SessionsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
     return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
 
-  const getStatusConfig = (status: string) => {
-    switch (status) {
-      case 'scheduled':
-        return { label: 'Scheduled', color: Colors.accent.primary, bgColor: Colors.accent.soft };
-      case 'in_progress':
-        return { label: 'In Progress', color: Colors.status.success, bgColor: Colors.status.successSoft };
-      case 'completed':
-        return { label: 'Completed', color: Colors.status.success, bgColor: Colors.status.successSoft };
-      case 'cancelled':
-        return { label: 'Cancelled', color: Colors.status.danger, bgColor: Colors.status.dangerSoft };
-      default:
-        return { label: status, color: Colors.text.secondary, bgColor: Colors.bg.tertiary };
+  const getStatusConfig = (item: SessionItem) => {
+    if (item.booking_status === 'pending_payment') {
+      return { label: 'Awaiting Confirmation', color: Colors.status.warning, bgColor: Colors.status.warningSoft };
     }
+    if (item.booking_status === 'cancelled' || item.session_status === 'cancelled') {
+      return { label: 'Cancelled', color: Colors.status.danger, bgColor: Colors.status.dangerSoft };
+    }
+    if (item.booking_status === 'failed') {
+      return { label: 'Failed', color: Colors.status.danger, bgColor: Colors.status.dangerSoft };
+    }
+    if (item.booking_status === 'completed' || item.session_status === 'completed') {
+      return { label: 'Completed', color: Colors.status.success, bgColor: Colors.status.successSoft };
+    }
+    if (item.session_status === 'in_progress') {
+      return { label: 'In Progress', color: Colors.status.success, bgColor: Colors.status.successSoft };
+    }
+    return { label: 'Confirmed', color: Colors.accent.primary, bgColor: Colors.accent.soft };
   };
 
   const renderSession = ({ item }: { item: SessionItem }) => {
-    const sc = getStatusConfig(item.status);
+    const sc = getStatusConfig(item);
     const joinable = canJoin(item);
+    const showConfirm = isTherapistMode && item.booking_status === 'pending_payment';
 
     return (
       <Card style={styles.sessionCard}>
         <View style={styles.cardHeader}>
-          <Avatar uri={item.therapist_avatar} name={item.therapist_name} size={44} />
+          <Avatar uri={item.participant_avatar} name={item.participant_name} size={44} />
           <View style={styles.cardHeaderText}>
-            <Text style={styles.therapistName}>{item.therapist_name}</Text>
+            <Text style={styles.participantName}>{item.participant_name}</Text>
+            <Text style={styles.participantMeta}>{item.participant_subtitle}</Text>
             <Text style={styles.dateTime}>{formatDateTime(item.scheduled_start_at)}</Text>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: sc.bgColor }]}>
@@ -144,14 +290,40 @@ export const SessionsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
           </View>
         </View>
 
+        {showConfirm && (
+          <Button
+            title="Confirm booking"
+            variant="secondary"
+            loading={actionLoadingId === item.booking_id}
+            onPress={() => confirmBooking(item)}
+          />
+        )}
+
         {joinable && (
           <TouchableOpacity
             style={styles.joinBtn}
-            onPress={() => navigation.navigate('VideoCall', { session: item })}
+            onPress={() =>
+              navigation.navigate('VideoCall', {
+                session: {
+                  id: item.session_id,
+                  booking_id: item.booking_id,
+                  scheduled_start_at: item.scheduled_start_at,
+                  scheduled_end_at: item.scheduled_end_at,
+                  participant_name: item.participant_name,
+                  participant_avatar: item.participant_avatar,
+                  status: item.session_status || 'scheduled',
+                  video_call_id: item.video_call_id,
+                },
+              })
+            }
           >
             <Ionicons name="videocam" size={18} color={Colors.text.inverse} />
             <Text style={styles.joinBtnText}>Join session</Text>
           </TouchableOpacity>
+        )}
+
+        {!joinable && item.booking_status === 'confirmed' && !item.session_id && (
+          <Text style={styles.helperText}>Video room is being prepared. Refresh shortly.</Text>
         )}
       </Card>
     );
@@ -159,9 +331,8 @@ export const SessionsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <Text style={styles.screenTitle}>Sessions</Text>
+      <Text style={styles.screenTitle}>{isTherapistMode ? 'Practice Sessions' : 'Sessions'}</Text>
 
-      {/* Tabs */}
       <View style={styles.tabRow}>
         <TouchableOpacity
           style={[styles.tab, tab === 'upcoming' && styles.tabActive]}
@@ -183,19 +354,32 @@ export const SessionsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         <EmptyState
           icon={tab === 'upcoming' ? 'calendar-outline' : 'time-outline'}
           title={tab === 'upcoming' ? 'No upcoming sessions' : 'No past sessions'}
-          message={tab === 'upcoming' ? 'Book a session with a therapist to get started.' : 'Your completed sessions will appear here.'}
-          actionLabel={tab === 'upcoming' ? 'Find a therapist' : undefined}
-          onAction={tab === 'upcoming' ? () => navigation.navigate('HomeTab') : undefined}
+          message={
+            tab === 'upcoming'
+              ? isTherapistMode
+                ? 'Pending and confirmed client sessions will appear here.'
+                : 'Book a session with a therapist to get started.'
+              : 'Completed or cancelled sessions will appear here.'
+          }
+          actionLabel={tab === 'upcoming' && !isTherapistMode ? 'Find a therapist' : undefined}
+          onAction={tab === 'upcoming' && !isTherapistMode ? () => navigation.navigate('HomeTab') : undefined}
         />
       ) : (
         <FlatList
           data={sessions}
           renderItem={renderSession}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => item.booking_id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchSessions(); }} tintColor={Colors.accent.primary} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                fetchSessions();
+              }}
+              tintColor={Colors.accent.primary}
+            />
           }
         />
       )}
@@ -252,8 +436,9 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   cardHeaderText: { flex: 1 },
-  therapistName: { ...Typography.bodySemibold, color: Colors.text.primary },
-  dateTime: { ...Typography.caption, color: Colors.text.secondary, marginTop: 2 },
+  participantName: { ...Typography.bodySemibold, color: Colors.text.primary },
+  participantMeta: { ...Typography.caption, color: Colors.text.secondary, marginTop: 2 },
+  dateTime: { ...Typography.caption, color: Colors.text.tertiary, marginTop: 2 },
   statusBadge: {
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
@@ -274,5 +459,9 @@ const styles = StyleSheet.create({
   joinBtnText: {
     ...Typography.bodyEmphasis,
     color: Colors.text.inverse,
+  },
+  helperText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
   },
 });

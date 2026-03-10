@@ -11,17 +11,26 @@ export const BookingConfirmationScreen: React.FC<{ route: any; navigation: any }
 }) => {
   const { therapist, booking } = route.params;
   const startDate = new Date(booking.scheduled_start_at);
+  const isPendingConfirmation = booking.status === 'pending_payment';
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         {/* Success icon */}
-        <View style={styles.successCircle}>
-          <Ionicons name="checkmark" size={40} color={Colors.text.inverse} />
+        <View style={[styles.successCircle, isPendingConfirmation && styles.pendingCircle]}>
+          <Ionicons
+            name={isPendingConfirmation ? 'time-outline' : 'checkmark'}
+            size={40}
+            color={Colors.text.inverse}
+          />
         </View>
 
-        <Text style={styles.title}>Session booked!</Text>
-        <Text style={styles.subtitle}>You're all set. Here are the details.</Text>
+        <Text style={styles.title}>{isPendingConfirmation ? 'Request sent' : 'Session booked!'}</Text>
+        <Text style={styles.subtitle}>
+          {isPendingConfirmation
+            ? 'Awaiting therapist confirmation. You will see it in Sessions once accepted.'
+            : "You're all set. Here are the details."}
+        </Text>
 
         {/* Details card */}
         <Card style={styles.detailsCard}>
@@ -58,13 +67,22 @@ export const BookingConfirmationScreen: React.FC<{ route: any; navigation: any }
             <Ionicons name="wallet-outline" size={18} color={Colors.text.secondary} />
             <Text style={styles.detailText}>₹{booking.amount_inr}</Text>
           </View>
+
+          <View style={styles.detailRow}>
+            <Ionicons name="information-circle-outline" size={18} color={Colors.text.secondary} />
+            <Text style={styles.detailText}>
+              {isPendingConfirmation ? 'Status: Awaiting confirmation' : 'Status: Confirmed'}
+            </Text>
+          </View>
         </Card>
 
         {/* Reminder */}
         <View style={styles.reminderCard}>
           <Ionicons name="notifications-outline" size={16} color={Colors.accent.primary} />
           <Text style={styles.reminderText}>
-            You can join the waiting room 5 minutes before your session starts.
+            {isPendingConfirmation
+              ? 'Your therapist needs to confirm this slot first. We will keep this request in your Sessions tab.'
+              : 'You can join the waiting room 5 minutes before your session starts.'}
           </Text>
         </View>
 
@@ -104,6 +122,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.lg,
+  },
+  pendingCircle: {
+    backgroundColor: Colors.status.warning,
   },
   title: { ...Typography.title1, color: Colors.text.primary, marginBottom: Spacing.xs },
   subtitle: { ...Typography.body, color: Colors.text.secondary, marginBottom: Spacing.xl },
