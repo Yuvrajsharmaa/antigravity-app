@@ -17,6 +17,7 @@ import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { Therapist } from '../../core/models/types';
 import { TherapistDashboardScreen } from '../therapist-dashboard/TherapistDashboardScreen';
+import { MentalHealthDashboard } from './components/MentalHealthDashboard';
 
 const FILTER_OPTIONS = ['All', 'Anxiety', 'Relationships', 'Loneliness', 'Work Stress', 'Self-Esteem', 'Grief'];
 
@@ -157,6 +158,7 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent.primary} />
             }
           >
+            <MentalHealthDashboard />
             <View style={styles.carePlanContainer}>
               <Text style={styles.sectionTitle}>Your Care Plan</Text>
               <Card style={styles.actionCard}>
@@ -165,9 +167,12 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                 </View>
                 <View style={styles.actionContent}>
                   <Text style={styles.actionTitle}>Therapist Check-in</Text>
-                  <Text style={styles.actionDesc}>Dr. Sharma wants to know how your breathing exercise went today.</Text>
+                  <Text style={styles.actionDesc}>Check-in on your breathing exercise</Text>
                 </View>
-                <TouchableOpacity style={styles.actionBtnPrimary}>
+                <TouchableOpacity 
+                  style={styles.actionBtnPrimary}
+                  onPress={() => navigation.navigate('MessagesTab')}
+                >
                   <Text style={styles.actionBtnText}>Reply</Text>
                 </TouchableOpacity>
               </Card>

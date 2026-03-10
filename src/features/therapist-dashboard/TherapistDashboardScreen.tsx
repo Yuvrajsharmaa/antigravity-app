@@ -3,8 +3,10 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'rea
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Avatar, Card } from '../../core/components';
+import { Avatar, Card, LoadingState } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
+import { supabase } from '../../services/supabase';
+import { useFocusEffect } from '@react-navigation/native';
 
 const DUMMY_CLIENTS_NEEDING_ATTENTION = [
   {
@@ -41,22 +43,79 @@ const DUMMY_UPCOMING_SESSIONS = [
 ];
 
 export const TherapistDashboardScreen: React.FC = () => {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
+  const [realClients, setRealClients] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleSendNudge = (clientName: string) => {
+  const fetchClients = React.useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('conversations')
+        .select(`
+          id,
+          users:user_id ( id, first_name, display_name, avatar_url )
+        `)
+        .eq('therapist_id', user.id);
+      
+      if (!error && data) {
+        setRealClients(data);
+      }
+    } catch (err) {
+      console.log(err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchClients();
+    }, [fetchClients])
+  );
+
+  const handleSendNudge = async (clientName: string, activeConvId?: string) => {
+    if (!activeConvId) {
+      Alert.alert(
+        'Prototype Note',
+        `Send an automated check-in nudge to ${clientName}? (This is a dummy profile, so it won't send real data)`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Send Template', onPress: () => Alert.alert('Sent', 'The client will receive a push notification.') },
+        ]
+      );
+      return;
+    }
+
     Alert.alert(
       'Send check-in',
-      `Send an automated check-in nudge to ${clientName}?`,
+      `Send an automated check-in template to ${clientName}?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Send Template', onPress: () => Alert.alert('Sent', 'The client will receive a push notification.') },
+        { text: 'Send Template', onPress: async () => {
+            try {
+              const text = `Hi ${clientName}, I noticed you haven't checked in lately. Take a deep breath and let me know how you're feeling today!`;
+              await supabase.from('messages').insert({
+                conversation_id: activeConvId,
+                sender_id: user?.id,
+                body: text,
+                message_type: 'text',
+              });
+              await supabase.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', activeConvId);
+              Alert.alert('Sent', 'Check-in sent successfully!');
+            } catch(e) {
+              Alert.alert('Error', 'Failed to send message.');
+            }
+        }},
       ]
     );
   };
 
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {loading && <LoadingState message="" />}
         
         {/* Header */}
         <View style={styles.header}>
@@ -87,7 +146,43 @@ export const TherapistDashboardScreen: React.FC = () => {
           <Text style={styles.sectionAction}>View all</Text>
         </View>
 
-        {DUMMY_CLIENTS_NEEDING_ATTENTION.map((client) => (
+        {/* Real Clients rendered if available */}
+        {realClients.map((conv) => {
+          const uProfile = Array.isArray(conv.users) ? conv.users[0] : conv.users;
+          const cName = uProfile?.display_name || uProfile?.first_name || 'Client';
+          return (
+            <Card key={conv.id} style={styles.clientCard}>
+            <View style={styles.clientHeader}>
+              <Avatar uri={uProfile?.avatar_url} name={cName} size={48} />
+              <View style={styles.clientInfo}>
+                <Text style={styles.clientName}>{cName}</Text>
+                <Text style={styles.clientLastContact}>Last contact: Active</Text>
+              </View>
+              <View style={styles.alertDot} />
+            </View>
+            <View style={styles.issueContainer}>
+              <Ionicons name="warning-outline" size={16} color={Colors.status.warning} />
+              <Text style={styles.issueText}>Needs check-in</Text>
+            </View>
+            <View style={styles.actionButtons}>
+              <TouchableOpacity style={[styles.actionBtn, styles.actionBtnOutline]}>
+                <Ionicons name="reader-outline" size={18} color={Colors.text.primary} />
+                <Text style={styles.actionBtnTextOutline}>View Notes</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.actionBtn, styles.actionBtnPrimary]}
+                onPress={() => handleSendNudge(cName, conv.id)}
+              >
+                <Ionicons name="paper-plane-outline" size={18} color={Colors.text.inverse} />
+                <Text style={styles.actionBtnTextPrimary}>Send Check-in</Text>
+              </TouchableOpacity>
+            </View>
+          </Card>
+          );
+        })}
+
+        {/* Dummy placeholders if less than 2 real clients */}
+        {realClients.length < 2 && DUMMY_CLIENTS_NEEDING_ATTENTION.map((client) => (
           <Card key={client.id} style={styles.clientCard}>
             <View style={styles.clientHeader}>
               <Avatar uri={client.avatar} name={client.name} size={48} />
@@ -106,10 +201,7 @@ export const TherapistDashboardScreen: React.FC = () => {
               <Text style={styles.issueText}>{client.issue}</Text>
             </View>
             <View style={styles.actionButtons}>
-              <TouchableOpacity 
-                style={[styles.actionBtn, styles.actionBtnOutline]}
-                onPress={() => {}}
-              >
+              <TouchableOpacity style={[styles.actionBtn, styles.actionBtnOutline]}>
                 <Ionicons name="reader-outline" size={18} color={Colors.text.primary} />
                 <Text style={styles.actionBtnTextOutline}>View Notes</Text>
               </TouchableOpacity>
