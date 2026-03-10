@@ -105,8 +105,7 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
             <TouchableOpacity
               style={styles.endedBtn}
               onPress={() => {
-                navigation.popToTop();
-                navigation.navigate('SessionsTab');
+                navigation.navigate('Main', { screen: 'SessionsTab' });
               }}
             >
               <Text style={styles.endedBtnText}>View sessions</Text>
@@ -114,8 +113,7 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
             <TouchableOpacity
               style={[styles.endedBtn, styles.endedBtnPrimary]}
               onPress={() => {
-                navigation.popToTop();
-                navigation.navigate('HomeTab');
+                navigation.navigate('Main', { screen: 'HomeTab' });
               }}
             >
               <Text style={[styles.endedBtnText, styles.endedBtnPrimaryText]}>Go home</Text>
