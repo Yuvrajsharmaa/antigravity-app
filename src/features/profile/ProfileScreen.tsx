@@ -26,7 +26,7 @@ export const ProfileScreen: React.FC = () => {
   const legalItems = [
     { icon: 'document-text-outline', label: 'Terms of service', onPress: () => {} },
     { icon: 'lock-closed-outline', label: 'Privacy policy', onPress: () => {} },
-    { icon: 'information-circle-outline', label: 'About Antigravity', onPress: () => {} },
+    { icon: 'information-circle-outline', label: 'About Care Space', onPress: () => {} },
   ];
 
   return (
@@ -80,7 +80,7 @@ export const ProfileScreen: React.FC = () => {
         <Text style={styles.signOutText}>Sign out</Text>
       </TouchableOpacity>
 
-      <Text style={styles.version}>Antigravity v1.0.0 (prototype)</Text>
+      <Text style={styles.version}>Care Space v1.0.0 (prototype)</Text>
     </SafeAreaView>
   );
 };

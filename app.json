@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "Antigravity",
-    "slug": "antigravity",
+    "name": "Care Space",
+    "slug": "care-space",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "scheme": "antigravity",
+    "scheme": "carespace",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -14,14 +14,14 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.antigravity.app",
+      "bundleIdentifier": "com.carespace.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "Antigravity needs camera access for video sessions.",
-        "NSMicrophoneUsageDescription": "Antigravity needs microphone access for video sessions."
+        "NSCameraUsageDescription": "Care Space needs camera access for video sessions.",
+        "NSMicrophoneUsageDescription": "Care Space needs microphone access for video sessions."
       }
     },
     "android": {
-      "package": "com.antigravity.app",
+      "package": "com.carespace.app",
       "adaptiveIcon": {
         "backgroundColor": "#F6F5F2",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -37,7 +37,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-camera"
+      "expo-camera",
+      "expo-web-browser"
     ]
   }
 }

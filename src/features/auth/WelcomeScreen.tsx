@@ -74,7 +74,7 @@ export const WelcomeScreen: React.FC = () => {
             <View style={styles.logoContainer}>
               <Ionicons name="planet-outline" size={44} color={Colors.accent.primary} />
             </View>
-            <Text style={styles.brandName}>Antigravity</Text>
+            <Text style={styles.brandName}>Care Space</Text>
             <Text style={styles.headline}>
               Talk to a psychologist{'\n'}without the awkward admin.
             </Text>
