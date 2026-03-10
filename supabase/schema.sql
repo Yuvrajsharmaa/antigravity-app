@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS public.user_preferences (
   wellbeing_reminder_time TIME DEFAULT '19:00:00',
   quiet_hours_start TIME DEFAULT '21:00:00',
   quiet_hours_end TIME DEFAULT '08:00:00',
+  therapist_gender_preference TEXT DEFAULT 'no_preference' CHECK (therapist_gender_preference IN ('no_preference', 'female', 'male', 'non_binary')),
+  time_preference TEXT DEFAULT 'evening' CHECK (time_preference IN ('morning', 'afternoon', 'evening', 'flexible')),
+  care_style_preference TEXT,
+  journal_enabled BOOLEAN DEFAULT FALSE,
+  journal_sharing TEXT DEFAULT 'summary' CHECK (journal_sharing IN ('none', 'summary', 'entry_by_entry', 'all')),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );

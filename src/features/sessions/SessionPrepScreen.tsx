@@ -25,6 +25,15 @@ interface SessionPrepPayload {
 
 const FEELINGS = ['Calm', 'Focused', 'Anxious', 'Low'];
 
+interface ClientSnapshot {
+  concern: string | null;
+  stylePreference: string | null;
+  mood: string | null;
+  stress: number | null;
+  sleep: number | null;
+  note: string | null;
+}
+
 export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ route, navigation }) => {
   const { isTherapistMode } = useAuth();
   const session = route.params?.session as SessionPrepPayload;
@@ -36,6 +45,14 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
   const [secondsToWindow, setSecondsToWindow] = useState(0);
   const [riskLevel, setRiskLevel] = useState<RiskLevel>('stable');
   const [riskReason, setRiskReason] = useState('Loading client trend...');
+  const [snapshot, setSnapshot] = useState<ClientSnapshot>({
+    concern: null,
+    stylePreference: null,
+    mood: null,
+    stress: null,
+    sleep: null,
+    note: null,
+  });
 
   useEffect(() => {
     const target = new Date(session.scheduled_start_at).getTime() - 5 * 60 * 1000;
@@ -58,7 +75,7 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
       const sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
       const { data, error } = await supabase
         .from('client_metrics')
-        .select('created_at, stress_level, care_score_snapshot')
+        .select('created_at, stress_level, sleep_hours, mood, journal_entry, care_score_snapshot')
         .eq('user_id', session.participant_id)
         .gte('created_at', sinceIso)
         .order('created_at', { ascending: false })
@@ -73,6 +90,29 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
       const result = assessCareRisk(data || []);
       setRiskLevel(result.level);
       setRiskReason(result.reason);
+
+      const latest = data?.[0];
+      setSnapshot((prev) => ({
+        ...prev,
+        mood: latest?.mood || null,
+        stress: latest?.stress_level ?? null,
+        sleep: latest?.sleep_hours ?? null,
+        note: latest?.journal_entry || null,
+      }));
+
+      const { data: prefs } = await supabase
+        .from('user_preferences')
+        .select('intent_tags, care_style_preference')
+        .eq('user_id', session.participant_id)
+        .maybeSingle();
+
+      if (prefs) {
+        setSnapshot((prev) => ({
+          ...prev,
+          concern: prefs.intent_tags?.[0] || null,
+          stylePreference: prefs.care_style_preference || null,
+        }));
+      }
     };
 
     fetchTrend();
@@ -172,6 +212,22 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
               </View>
             </View>
             <Text style={styles.helper}>{riskReason}</Text>
+
+             <View style={styles.snapshotGrid}>
+              <SnapshotItem label="Reason" value={snapshot.concern || 'Not shared'} />
+              <SnapshotItem label="Mood today" value={snapshot.mood || 'Not logged'} />
+              <SnapshotItem label="Stress" value={snapshot.stress !== null ? `${snapshot.stress}/5` : 'Not logged'} />
+              <SnapshotItem label="Sleep" value={snapshot.sleep !== null ? `${snapshot.sleep}h` : 'Not logged'} />
+              <SnapshotItem label="Preferred style" value={snapshot.stylePreference || 'Not shared'} />
+            </View>
+
+            {snapshot.note ? (
+              <View style={styles.noteBox}>
+                <Text style={styles.noteTitle}>Pre-session note</Text>
+                <Text style={styles.noteText} numberOfLines={3}>{snapshot.note}</Text>
+              </View>
+            ) : null}
+
             <View style={styles.promptBox}>
               <Text style={styles.promptTitle}>Suggested opener</Text>
               <Text style={styles.promptText}>"How have the last couple of days felt for you, especially outside session hours?"</Text>
@@ -218,6 +274,13 @@ const CheckItem: React.FC<{
     <Text style={styles.checkLabel}>{label}</Text>
     <Text style={styles.checkAction}>{active ? 'Ready' : 'Fix'}</Text>
   </TouchableOpacity>
+);
+
+const SnapshotItem: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <View style={styles.snapshotItem}>
+    <Text style={styles.snapshotLabel}>{label}</Text>
+    <Text style={styles.snapshotValue} numberOfLines={1}>{value}</Text>
+  </View>
 );
 
 const styles = StyleSheet.create({
@@ -328,6 +391,45 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     color: Colors.text.secondary,
     marginBottom: Spacing.sm,
+  },
+  snapshotGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  snapshotItem: {
+    width: '48%',
+    backgroundColor: Colors.bg.secondary,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  snapshotLabel: {
+    ...Typography.micro,
+    color: Colors.text.tertiary,
+  },
+  snapshotValue: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.primary,
+    marginTop: 2,
+  },
+  noteBox: {
+    backgroundColor: Colors.accent.soft,
+    borderRadius: Radius.md,
+    padding: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  noteTitle: {
+    ...Typography.captionEmphasis,
+    color: Colors.accent.dark,
+  },
+  noteText: {
+    ...Typography.caption,
+    color: Colors.accent.dark,
+    marginTop: 2,
   },
   promptBox: {
     backgroundColor: Colors.bg.secondary,

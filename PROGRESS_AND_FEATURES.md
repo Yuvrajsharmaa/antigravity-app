@@ -41,6 +41,31 @@ Build **"Care Space"**, a comprehensive psychological consultation platform wher
 
 ## 📈 Recent Updates Log (Changelog)
 
+- **[Codex AGENT] - March 10, 2026 (Onboarding UX Refinement + Therapist Snapshot Upgrade)**
+  - Added and applied migration `supabase/migrations/20260310232000_onboarding_journal_preferences.sql` on project `hvzmxceeitrabskaikmm`:
+    - Extended `user_preferences` with onboarding/matching/journal controls:
+      - `therapist_gender_preference`
+      - `time_preference`
+      - `care_style_preference`
+      - `journal_enabled`
+      - `journal_sharing`
+  - Synced canonical schema (`supabase/schema.sql`) with new `user_preferences` columns/check constraints.
+  - Expanded client onboarding to better match the desired lightweight-but-contextual flow:
+    - Intent-first intake (up to 2 reasons).
+    - Matching preferences (language, mode, therapist gender optional, time preference, care style).
+    - Light emotional check-in (mood, stress, sleep, optional note).
+    - Journal opt-in + sharing mode selection (summary / entry-by-entry / all / none).
+    - Gentle reminder controls retained (time + quiet hours).
+    - Implemented in `src/features/onboarding/OnboardingScreen.tsx`.
+  - Added optional onboarding baseline metric write into `client_metrics` when user provides mood/stress/sleep inputs.
+  - Upgraded therapist pre-session view (`src/features/sessions/SessionPrepScreen.tsx`) with a compact client snapshot card:
+    - Primary reason/intent
+    - Mood, stress, sleep
+    - Care style preference
+    - Optional pre-session note
+    - Existing risk triage and suggested opener retained.
+  - Updated frontend `UserPreferences` typings in `src/core/models/types.ts` for new fields.
+
 - **[Codex AGENT] - March 10, 2026 (Session Experience + Adaptive Nudges + Role Onboarding Sprint)**
   - Added migration `supabase/migrations/20260310211000_session_journey_nudges.sql` and synced canonical schema (`supabase/schema.sql`) to:
     - Extend `user_preferences` with `wellbeing_reminders_enabled`, `wellbeing_reminder_time`, `quiet_hours_start`, `quiet_hours_end`.
