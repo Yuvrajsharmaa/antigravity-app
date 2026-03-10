@@ -41,6 +41,15 @@ Build **"Care Space"**, a comprehensive psychological consultation platform wher
 
 ## 📈 Recent Updates Log (Changelog)
 
+- **[Codex AGENT] - March 10, 2026 (Onboarding Reachability + Full-Screen Welcome Pass)**
+  - Updated `src/features/onboarding/OnboardingScreen.tsx` to improve first-run usability and one-hand reach:
+    - Made onboarding step 1 (welcome) full-screen-style with dynamic viewport height sizing.
+    - Applied leaf app mark + `Care Space` brand treatment consistently on both client and therapist welcome steps.
+    - Centered non-welcome step content vertically for easier thumb access on smaller devices.
+    - Switched onboarding scroll behavior to `keyboardShouldPersistTaps="always"` so chip/select controls remain instantly tappable while keyboard is open.
+    - Converted onboarding checkbox rows to full-row press targets (`Pressable`) so users can toggle without precision taps.
+  - Preserved all existing onboarding validation, Supabase writes, role branching, and navigation behavior.
+
 - **[Codex AGENT] - March 10, 2026 (UX Cleanup: Onboarding + Profile Scroll)**
   - Simplified onboarding header in `src/features/onboarding/OnboardingScreen.tsx`:
     - Removed heavy step summary card and removed `Client Setup`/`Therapist Setup` label text.

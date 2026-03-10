@@ -2,10 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -64,6 +68,7 @@ const REMINDER_TIMES = ['09:00:00', '14:00:00', '19:00:00'];
 const QUIET_START_OPTIONS = ['20:00:00', '21:00:00', '22:00:00'];
 const QUIET_END_OPTIONS = ['07:00:00', '08:00:00', '09:00:00'];
 const THERAPIST_STYLE_OPTIONS = ['Warm and conversational', 'Structured and goal-focused', 'Mindfulness-led'];
+const SLEEP_OPTIONS = ['5', '6', '7', '8', '9'];
 const MOOD_CHIP_LABELS: Record<string, string> = {
   Calm: 'Calm 🙂',
   Low: 'Low 🙁',
@@ -109,6 +114,7 @@ const calculateCareScore = (mood: string, stressLevel: number, sleepHours: numbe
 export const OnboardingScreen: React.FC = () => {
   const { user, profile, refreshProfile } = useAuth();
   const isTherapistFlow = profile?.role === 'therapist';
+  const { height: viewportHeight } = useWindowDimensions();
 
   const totalSteps = isTherapistFlow ? 5 : 6;
   const fade = useRef(new Animated.Value(1)).current;
@@ -155,6 +161,7 @@ export const OnboardingScreen: React.FC = () => {
     return 'Talk to a qualified psychologist, without awkward admin';
   }, [isTherapistFlow]);
   const progressPercent = `${((step + 1) / totalSteps) * 100}%` as `${number}%`;
+  const welcomeMinHeight = Math.max(440, viewportHeight - 220);
 
   const toggleTag = (value: string, list: string[], setter: (value: string[]) => void, limit?: number) => {
     if (list.includes(value)) {
@@ -300,14 +307,18 @@ export const OnboardingScreen: React.FC = () => {
     switch (step) {
       case 0:
         return (
-          <Card style={styles.heroCard}>
-            <View style={[styles.heroBlob, styles.heroBlobOne]} />
-            <View style={[styles.heroBlob, styles.heroBlobTwo]} />
-            <Ionicons name="leaf-outline" size={28} color={Colors.accent.primary} />
+          <View style={[styles.welcomeScreen, { minHeight: welcomeMinHeight }]}>
+            <View style={[styles.welcomeHalo, styles.welcomeHaloTop]} />
+            <View style={[styles.welcomeHalo, styles.welcomeHaloBottom]} />
+            <View style={styles.brandMark}>
+              <Ionicons name="leaf-outline" size={34} color={Colors.accent.primary} />
+            </View>
+            <Text style={styles.brandTitle}>Care Space</Text>
+            <Text style={styles.brandSubtitle}>A calm companion for your emotional wellbeing.</Text>
             <Text style={styles.heroTitle}>{welcomeTitle}</Text>
             <Text style={styles.heroSubtitle}>Private. Structured. No long-term commitment needed.</Text>
             <Text style={styles.heroEmergency}>This is not for emergencies.</Text>
-          </Card>
+          </View>
         );
       case 1:
         return (
@@ -434,14 +445,17 @@ export const OnboardingScreen: React.FC = () => {
               </View>
 
               <Text style={styles.fieldLabel}>Hours of sleep</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. 7"
-                placeholderTextColor={Colors.text.tertiary}
-                keyboardType="numeric"
-                value={checkInSleep}
-                onChangeText={setCheckInSleep}
-              />
+              <View style={styles.wrapRow}>
+                {SLEEP_OPTIONS.map((item) => (
+                  <PillChip
+                    key={item}
+                    label={`${item}h`}
+                    selected={checkInSleep === item}
+                    onPress={() => setCheckInSleep(item)}
+                  />
+                ))}
+              </View>
+              <Text style={styles.fieldHelper}>Tap to select. You can edit later in Daily Check-in.</Text>
 
               <Text style={styles.fieldLabel}>Anything to share before your first session? (optional)</Text>
               <TextInput
@@ -558,15 +572,19 @@ export const OnboardingScreen: React.FC = () => {
     switch (step) {
       case 0:
         return (
-          <Card style={styles.heroCard}>
-            <View style={[styles.heroBlob, styles.heroBlobOne]} />
-            <View style={[styles.heroBlob, styles.heroBlobTwo]} />
-            <Ionicons name="sparkles-outline" size={28} color={Colors.accent.primary} />
+          <View style={[styles.welcomeScreen, { minHeight: welcomeMinHeight }]}>
+            <View style={[styles.welcomeHalo, styles.welcomeHaloTop]} />
+            <View style={[styles.welcomeHalo, styles.welcomeHaloBottom]} />
+            <View style={styles.brandMark}>
+              <Ionicons name="leaf-outline" size={34} color={Colors.accent.primary} />
+            </View>
+            <Text style={styles.brandTitle}>Care Space</Text>
+            <Text style={styles.brandSubtitle}>A calm companion for your emotional wellbeing.</Text>
             <Text style={styles.heroTitle}>{welcomeTitle}</Text>
             <Text style={styles.heroSubtitle}>
               Set up your profile so clients get a warm and trustworthy first impression.
             </Text>
-          </Card>
+          </View>
         );
       case 1:
         return (
@@ -579,6 +597,7 @@ export const OnboardingScreen: React.FC = () => {
               value={firstName}
               onChangeText={setFirstName}
               autoCapitalize="words"
+              autoFocus
             />
             <TextInput
               style={styles.input}
@@ -671,32 +690,41 @@ export const OnboardingScreen: React.FC = () => {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        <Animated.View style={{ opacity: fade }}>
-          {isTherapistFlow ? renderTherapistStep() : renderClientStep()}
-        </Animated.View>
-      </ScrollView>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, step === 0 ? styles.scrollContentWelcome : styles.scrollContentSteps]}
+          keyboardShouldPersistTaps="always"
+          showsVerticalScrollIndicator={false}
+        >
+          <Animated.View style={{ opacity: fade }}>
+            {isTherapistFlow ? renderTherapistStep() : renderClientStep()}
+          </Animated.View>
+        </ScrollView>
 
-      <View style={styles.bottomBar}>
-        {step > 0 && (
-          <Button
-            title="Back"
-            variant="ghost"
-            fullWidth={false}
-            onPress={() => setStep((prev) => Math.max(prev - 1, 0))}
-            style={styles.backBtn}
-          />
-        )}
-        <View style={styles.flexGrow}>
-          <Button
-            title={step === totalSteps - 1 ? 'Finish' : 'Continue'}
-            onPress={step === totalSteps - 1 ? completeOnboarding : () => setStep((prev) => prev + 1)}
-            disabled={!canProceed()}
-            loading={loading}
-            size="lg"
-          />
+        <View style={styles.bottomBar}>
+          {step > 0 && (
+            <Button
+              title="Back"
+              variant="ghost"
+              fullWidth={false}
+              onPress={() => setStep((prev) => Math.max(prev - 1, 0))}
+              style={styles.backBtn}
+            />
+          )}
+          <View style={styles.flexGrow}>
+            <Button
+              title={step === totalSteps - 1 ? 'Finish' : 'Continue'}
+              onPress={step === totalSteps - 1 ? completeOnboarding : () => setStep((prev) => prev + 1)}
+              disabled={!canProceed()}
+              loading={loading}
+              size="lg"
+            />
+          </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -706,12 +734,12 @@ const CheckBox: React.FC<{ checked: boolean; onPress: () => void; label: string 
   onPress,
   label,
 }) => (
-  <View style={checkStyles.row}>
+  <Pressable onPress={onPress} style={checkStyles.row}>
     <View style={[checkStyles.box, checked && checkStyles.checked]}>
       {checked && <Ionicons name="checkmark" size={14} color="#fff" />}
     </View>
-    <Text style={checkStyles.label} onPress={onPress}>{label}</Text>
-  </View>
+    <Text style={checkStyles.label}>{label}</Text>
+  </Pressable>
 );
 
 const checkStyles = StyleSheet.create({
@@ -751,6 +779,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.bg.primary,
   },
+  flex: {
+    flex: 1,
+  },
   progressContainer: {
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.md,
@@ -768,32 +799,71 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: Spacing.xl,
+  },
+  scrollContentWelcome: {
+    flexGrow: 1,
+    justifyContent: 'center',
     paddingBottom: Spacing.xxl,
   },
-  heroCard: {
-    marginTop: Spacing.sm,
-    backgroundColor: Colors.accent.soft,
-    borderColor: Colors.accent.soft,
-    alignItems: 'flex-start',
-    overflow: 'hidden',
-    gap: Spacing.xs,
+  scrollContentSteps: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.xxl,
   },
-  heroBlob: {
+  welcomeScreen: {
+    backgroundColor: Colors.accent.soft,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.xxl,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    gap: Spacing.sm,
+  },
+  welcomeHalo: {
     position: 'absolute',
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.28)',
   },
-  heroBlobOne: {
-    width: 110,
-    height: 110,
-    top: -36,
-    right: -24,
+  welcomeHaloTop: {
+    width: 180,
+    height: 180,
+    top: -70,
+    right: -40,
   },
-  heroBlobTwo: {
-    width: 74,
-    height: 74,
-    bottom: -30,
-    left: -12,
+  welcomeHaloBottom: {
+    width: 120,
+    height: 120,
+    bottom: -40,
+    left: -28,
+  },
+  brandMark: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.bg.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.xs,
+  },
+  brandTitle: {
+    ...Typography.title1,
+    color: Colors.text.primary,
+    fontFamily: Platform.select({
+      ios: 'AvenirNext-DemiBold',
+      android: 'sans-serif-medium',
+      default: undefined,
+    }),
+    letterSpacing: 0.2,
+  },
+  brandSubtitle: {
+    ...Typography.body,
+    color: Colors.text.secondary,
   },
   heroTitle: {
     ...Typography.title2,
@@ -842,6 +912,11 @@ const styles = StyleSheet.create({
     ...Typography.captionEmphasis,
     color: Colors.text.secondary,
     marginTop: Spacing.xs,
+  },
+  fieldHelper: {
+    ...Typography.caption,
+    color: Colors.text.tertiary,
+    marginTop: 2,
   },
   row: {
     flexDirection: 'row',
