@@ -41,6 +41,13 @@ Build **"Care Space"**, a comprehensive psychological consultation platform wher
 
 ## 📈 Recent Updates Log (Changelog)
 
+- **[Codex AGENT] - March 10, 2026 (UX Cleanup: Onboarding + Profile Scroll)**
+  - Simplified onboarding header in `src/features/onboarding/OnboardingScreen.tsx`:
+    - Removed heavy step summary card and removed `Client Setup`/`Therapist Setup` label text.
+    - Replaced segmented top indicator with a minimal single progress track.
+  - Kept onboarding content style soft but less noisy while preserving all existing onboarding logic and data writes.
+  - Fixed `ProfileScreen` accessibility issue by wrapping content in `ScrollView` so users can always reach `Sign out` on smaller screens.
+
 - **[Codex AGENT] - March 10, 2026 (Onboarding UI Interaction Polish)**
   - Refined `src/features/onboarding/OnboardingScreen.tsx` to feel more interactive while preserving existing Care Space earth-tone design tokens and component system.
   - Added contextual onboarding step header (`Step x of y`, flow badge, step title/hint) for better progression clarity.
