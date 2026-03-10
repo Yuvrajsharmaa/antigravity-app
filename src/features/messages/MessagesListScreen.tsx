@@ -16,16 +16,16 @@ import { useFocusEffect } from '@react-navigation/native';
 
 interface ConversationItem {
   id: string;
-  therapist_id: string;
-  therapist_name: string;
-  therapist_avatar: string | null;
+  other_id: string;
+  other_name: string;
+  other_avatar: string | null;
   last_message: string | null;
   last_message_at: string | null;
   unread: boolean;
 }
 
 export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { user } = useAuth();
+  const { user, isTherapistMode } = useAuth();
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -33,41 +33,61 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
   const fetch = useCallback(async () => {
     if (!user) return;
     try {
+      // Fetch conversations where user is either the client OR the therapist
+      const columnToMatch = isTherapistMode ? 'therapist_id' : 'user_id';
+      
       const { data, error } = await supabase
         .from('conversations')
         .select(`
-          id, therapist_id, last_message_at,
-          therapists!inner (
-            id,
-            profiles!inner (display_name, avatar_url)
-          )
+          id, therapist_id, user_id, last_message_at,
+          therapists:therapist_id ( profiles!inner (display_name, avatar_url) ),
+          users:user_id ( display_name, first_name, avatar_url )
         `)
-        .eq('user_id', user.id)
+        .eq(columnToMatch, user.id)
         .order('last_message_at', { ascending: false, nullsFirst: false });
 
       if (!error && data) {
-        const mapped: ConversationItem[] = data.map((c: any) => ({
-          id: c.id,
-          therapist_id: c.therapist_id,
-          therapist_name: c.therapists?.profiles?.display_name || 'Therapist',
-          therapist_avatar: c.therapists?.profiles?.avatar_url,
-          last_message: null,
-          last_message_at: c.last_message_at,
-          unread: false,
-        }));
+        const mapped: ConversationItem[] = [];
+        
+        for (const c of data) {
+          let name = 'User';
+          let avatar = null;
+          let otherId = c.therapist_id;
 
-        // Fetch last message for each conversation
-        for (const conv of mapped) {
+          if (isTherapistMode) {
+            const uProfile = Array.isArray(c.users) ? c.users[0] : c.users;
+            name = uProfile?.display_name || uProfile?.first_name || 'Client';
+            avatar = uProfile?.avatar_url;
+            otherId = c.user_id;
+          } else {
+            // Arrays are sometimes returned by postgrest depending on relationships
+            const tProfile = Array.isArray(c.therapists) ? (c.therapists[0] as any)?.profiles : (c.therapists as any)?.profiles;
+            name = tProfile?.display_name || 'Therapist';
+            avatar = tProfile?.avatar_url;
+          }
+
+          const convItem: ConversationItem = {
+            id: c.id,
+            other_id: otherId,
+            other_name: name,
+            other_avatar: avatar,
+            last_message: null,
+            last_message_at: c.last_message_at,
+            unread: false,
+          };
+
+          // Fetch last message for each conversation
           const { data: msgs } = await supabase
             .from('messages')
             .select('body')
-            .eq('conversation_id', conv.id)
+            .eq('conversation_id', convItem.id)
             .order('created_at', { ascending: false })
             .limit(1);
 
           if (msgs && msgs.length > 0) {
-            conv.last_message = msgs[0].body;
+            convItem.last_message = msgs[0].body;
           }
+          mapped.push(convItem);
         }
 
         setConversations(mapped);
@@ -103,16 +123,16 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
       style={styles.conversationRow}
       onPress={() => navigation.navigate('Chat', {
         conversationId: item.id,
-        therapistName: item.therapist_name,
-        therapistAvatar: item.therapist_avatar,
-        therapistId: item.therapist_id,
+        therapistName: item.other_name,
+        therapistAvatar: item.other_avatar,
+        therapistId: item.other_id,
       })}
       activeOpacity={0.7}
     >
-      <Avatar uri={item.therapist_avatar} name={item.therapist_name} size={48} />
+      <Avatar uri={item.other_avatar} name={item.other_name} size={48} />
       <View style={styles.convContent}>
         <View style={styles.convHeader}>
-          <Text style={styles.convName}>{item.therapist_name}</Text>
+          <Text style={styles.convName}>{item.other_name}</Text>
           <Text style={styles.convTime}>{formatTime(item.last_message_at)}</Text>
         </View>
         <Text style={styles.convPreview} numberOfLines={1}>
