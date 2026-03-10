@@ -1,0 +1,477 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors, Typography, Spacing, Radius } from '../../core/theme';
+import { Avatar, Card } from '../../core/components';
+import { supabase } from '../../services/supabase';
+import { useAuth } from '../../core/context/AuthContext';
+
+export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
+  route,
+  navigation,
+}) => {
+  const { session } = route.params;
+  const { user } = useAuth();
+  const [callState, setCallState] = useState<'waiting' | 'connecting' | 'active' | 'ended'>('waiting');
+  const [isMuted, setIsMuted] = useState(false);
+  const [isCameraOff, setIsCameraOff] = useState(false);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [elapsed, setElapsed] = useState(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const sessionDuration = Math.round(
+    (new Date(session.scheduled_end_at).getTime() - new Date(session.scheduled_start_at).getTime()) / 60000
+  );
+  const totalSeconds = sessionDuration * 60;
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  const startCall = async () => {
+    setCallState('connecting');
+
+    // Update session status
+    await supabase
+      .from('sessions')
+      .update({
+        status: 'in_progress',
+        joined_user_at: new Date().toISOString(),
+      })
+      .eq('id', session.id);
+
+    setTimeout(() => {
+      setCallState('active');
+      timerRef.current = setInterval(() => {
+        setElapsed((prev) => {
+          if (prev >= totalSeconds - 1) {
+            endCall();
+            return prev;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+    }, 1500);
+  };
+
+  const endCall = async () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setCallState('ended');
+
+    await supabase
+      .from('sessions')
+      .update({
+        status: 'completed',
+        ended_at: new Date().toISOString(),
+      })
+      .eq('id', session.id);
+
+    await supabase
+      .from('bookings')
+      .update({ status: 'completed' })
+      .eq('id', session.booking_id);
+  };
+
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const remaining = totalSeconds - elapsed;
+
+  if (callState === 'ended') {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.endedContainer}>
+          <View style={styles.endedIcon}>
+            <Ionicons name="checkmark-circle" size={56} color={Colors.status.success} />
+          </View>
+          <Text style={styles.endedTitle}>Session complete</Text>
+          <Text style={styles.endedSubtitle}>
+            Great job taking this step.{'\n'}You can book another session anytime.
+          </Text>
+
+          <View style={styles.endedActions}>
+            <TouchableOpacity
+              style={styles.endedBtn}
+              onPress={() => {
+                navigation.popToTop();
+                navigation.navigate('SessionsTab');
+              }}
+            >
+              <Text style={styles.endedBtnText}>View sessions</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.endedBtn, styles.endedBtnPrimary]}
+              onPress={() => {
+                navigation.popToTop();
+                navigation.navigate('HomeTab');
+              }}
+            >
+              <Text style={[styles.endedBtnText, styles.endedBtnPrimaryText]}>Go home</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (callState === 'waiting') {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.waitingContainer}>
+          <TouchableOpacity style={styles.closeBtn} onPress={() => navigation.goBack()}>
+            <Ionicons name="close" size={22} color={Colors.text.primary} />
+          </TouchableOpacity>
+
+          <Card style={styles.waitingCard}>
+            <Avatar uri={session.therapist_avatar} name={session.therapist_name} size={72} />
+            <Text style={styles.waitingName}>{session.therapist_name}</Text>
+            <Text style={styles.waitingTime}>
+              {new Date(session.scheduled_start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {' · '}{sessionDuration} min
+            </Text>
+          </Card>
+
+          <View style={styles.permissionsCard}>
+            <PermissionRow icon="camera-outline" label="Camera" granted={!isCameraOff} />
+            <PermissionRow icon="mic-outline" label="Microphone" granted={!isMuted} />
+            <PermissionRow icon="volume-high-outline" label="Speaker" granted={isSpeakerOn} />
+          </View>
+
+          {/* Preview controls */}
+          <View style={styles.previewControls}>
+            <ControlButton
+              icon={isMuted ? 'mic-off' : 'mic'}
+              label="Mic"
+              active={!isMuted}
+              onPress={() => setIsMuted(!isMuted)}
+            />
+            <ControlButton
+              icon={isCameraOff ? 'videocam-off' : 'videocam'}
+              label="Camera"
+              active={!isCameraOff}
+              onPress={() => setIsCameraOff(!isCameraOff)}
+            />
+            <ControlButton
+              icon={isSpeakerOn ? 'volume-high' : 'volume-mute'}
+              label="Speaker"
+              active={isSpeakerOn}
+              onPress={() => setIsSpeakerOn(!isSpeakerOn)}
+            />
+          </View>
+
+          <TouchableOpacity style={styles.joinBtn} onPress={startCall}>
+            <Ionicons name="videocam" size={22} color={Colors.text.inverse} />
+            <Text style={styles.joinBtnText}>Join session</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Active call or connecting
+  return (
+    <View style={styles.callContainer}>
+      {/* Simulated remote video */}
+      <View style={styles.remoteVideo}>
+        <Avatar uri={session.therapist_avatar} name={session.therapist_name} size={120} />
+        {callState === 'connecting' && (
+          <Text style={styles.connectingText}>Connecting...</Text>
+        )}
+      </View>
+
+      {/* Top overlay */}
+      <SafeAreaView style={styles.topOverlay}>
+        <View style={styles.topBar}>
+          <Text style={styles.callName}>{session.therapist_name}</Text>
+          <View style={[styles.timerBadge, remaining < 300 && styles.timerWarning]}>
+            <Ionicons name="time-outline" size={14} color={remaining < 300 ? Colors.status.danger : Colors.text.inverse} />
+            <Text style={[styles.timerText, remaining < 300 && styles.timerTextWarning]}>
+              {formatTime(remaining)}
+            </Text>
+          </View>
+        </View>
+      </SafeAreaView>
+
+      {/* Local preview */}
+      <View style={styles.localPreview}>
+        {isCameraOff ? (
+          <View style={styles.localPreviewOff}>
+            <Ionicons name="person" size={28} color={Colors.text.tertiary} />
+          </View>
+        ) : (
+          <View style={styles.localPreviewActive}>
+            <Text style={styles.localPreviewLabel}>You</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Bottom controls */}
+      <SafeAreaView style={styles.bottomOverlay} edges={['bottom']}>
+        <View style={styles.callControls}>
+          <ControlButton
+            icon={isMuted ? 'mic-off' : 'mic'}
+            active={!isMuted}
+            onPress={() => setIsMuted(!isMuted)}
+          />
+          <ControlButton
+            icon={isCameraOff ? 'videocam-off' : 'videocam'}
+            active={!isCameraOff}
+            onPress={() => setIsCameraOff(!isCameraOff)}
+          />
+          <ControlButton
+            icon={isSpeakerOn ? 'volume-high' : 'volume-mute'}
+            active={isSpeakerOn}
+            onPress={() => setIsSpeakerOn(!isSpeakerOn)}
+          />
+          <TouchableOpacity style={styles.endCallBtn} onPress={endCall}>
+            <Ionicons name="call" size={24} color="#fff" style={{ transform: [{ rotate: '135deg' }] }} />
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </View>
+  );
+};
+
+const PermissionRow: React.FC<{ icon: string; label: string; granted: boolean }> = ({
+  icon,
+  label,
+  granted,
+}) => (
+  <View style={permStyles.row}>
+    <Ionicons name={icon as any} size={18} color={Colors.text.secondary} />
+    <Text style={permStyles.label}>{label}</Text>
+    <Ionicons
+      name={granted ? 'checkmark-circle' : 'close-circle'}
+      size={18}
+      color={granted ? Colors.status.success : Colors.status.danger}
+    />
+  </View>
+);
+
+const ControlButton: React.FC<{
+  icon: string;
+  label?: string;
+  active: boolean;
+  onPress: () => void;
+}> = ({ icon, label, active, onPress }) => (
+  <TouchableOpacity style={ctrlStyles.btn} onPress={onPress}>
+    <View style={[ctrlStyles.circle, !active && ctrlStyles.circleInactive]}>
+      <Ionicons name={icon as any} size={22} color={active ? Colors.text.inverse : Colors.text.secondary} />
+    </View>
+    {label && <Text style={ctrlStyles.label}>{label}</Text>}
+  </TouchableOpacity>
+);
+
+const permStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: 6,
+  },
+  label: { ...Typography.body, color: Colors.text.primary, flex: 1 },
+});
+
+const ctrlStyles = StyleSheet.create({
+  btn: { alignItems: 'center', gap: 4 },
+  circle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: Colors.text.primary + '20',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  circleInactive: {
+    backgroundColor: Colors.bg.secondary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+  },
+  label: { ...Typography.caption, color: Colors.text.secondary },
+});
+
+const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: Colors.bg.primary },
+
+  // Waiting room
+  waitingContainer: {
+    flex: 1,
+    paddingHorizontal: Spacing.xl,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: Spacing.md,
+    right: Spacing.xl,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.bg.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+  },
+  waitingCard: {
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.xl,
+    width: '100%',
+  },
+  waitingName: { ...Typography.title2, color: Colors.text.primary },
+  waitingTime: { ...Typography.body, color: Colors.text.secondary },
+  permissionsCard: {
+    width: '100%',
+    backgroundColor: Colors.bg.secondary,
+    borderRadius: Radius.xl,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    marginBottom: Spacing.xl,
+  },
+  previewControls: {
+    flexDirection: 'row',
+    gap: Spacing.xl,
+    marginBottom: Spacing.xxl,
+  },
+  joinBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    width: '100%',
+    paddingVertical: Spacing.md,
+    backgroundColor: Colors.status.success,
+    borderRadius: Radius.lg,
+  },
+  joinBtnText: { ...Typography.bodySemibold, color: Colors.text.inverse },
+
+  // Active call
+  callContainer: { flex: 1, backgroundColor: '#1a1a2e' },
+  remoteVideo: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#16213e',
+  },
+  connectingText: {
+    ...Typography.body,
+    color: '#fff',
+    marginTop: Spacing.md,
+    opacity: 0.7,
+  },
+  topOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+  },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.sm,
+  },
+  callName: { ...Typography.bodySemibold, color: '#fff' },
+  timerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+    borderRadius: Radius.pill,
+  },
+  timerWarning: { backgroundColor: Colors.status.dangerSoft },
+  timerText: { ...Typography.captionEmphasis, color: '#fff' },
+  timerTextWarning: { color: Colors.status.danger },
+  localPreview: {
+    position: 'absolute',
+    bottom: 140,
+    right: Spacing.xl,
+    width: 100,
+    height: 140,
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  localPreviewOff: {
+    flex: 1,
+    backgroundColor: '#2d2d44',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  localPreviewActive: {
+    flex: 1,
+    backgroundColor: '#0f3460',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  localPreviewLabel: { ...Typography.caption, color: '#fff', opacity: 0.7 },
+  bottomOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  callControls: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: Spacing.lg,
+    paddingVertical: Spacing.lg,
+  },
+  endCallBtn: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: Colors.status.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Ended
+  endedContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xl,
+  },
+  endedIcon: { marginBottom: Spacing.lg },
+  endedTitle: { ...Typography.title1, color: Colors.text.primary, marginBottom: Spacing.xs },
+  endedSubtitle: { ...Typography.body, color: Colors.text.secondary, textAlign: 'center', lineHeight: 22 },
+  endedActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.xxl,
+    width: '100%',
+  },
+  endedBtn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.accent.soft,
+  },
+  endedBtnPrimary: {
+    backgroundColor: Colors.accent.primary,
+  },
+  endedBtnText: { ...Typography.bodyEmphasis, color: Colors.accent.primary },
+  endedBtnPrimaryText: { color: Colors.text.inverse },
+});
