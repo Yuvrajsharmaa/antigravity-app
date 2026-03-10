@@ -128,24 +128,28 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
             <Ionicons name="checkmark-circle" size={56} color={Colors.status.success} />
           </View>
           <Text style={styles.endedTitle}>Session complete</Text>
-          <Text style={styles.endedSubtitle}>You can review this in your Sessions tab.</Text>
+          <Text style={styles.endedSubtitle}>
+            {isTherapistMode
+              ? 'Wrap up with a quick follow-up action.'
+              : 'Take 30 seconds to capture your post-session reflection.'}
+          </Text>
 
           <View style={styles.endedActions}>
             <TouchableOpacity
               style={styles.endedBtn}
               onPress={() => {
-                navigation.navigate('Main', { screen: 'SessionsTab' });
+                navigation.navigate('PostSessionReflection', { session });
               }}
             >
-              <Text style={styles.endedBtnText}>View sessions</Text>
+              <Text style={styles.endedBtnText}>{isTherapistMode ? 'Open follow-up' : 'Reflect now'}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.endedBtn, styles.endedBtnPrimary]}
               onPress={() => {
-                navigation.navigate('Main', { screen: 'HomeTab' });
+                navigation.navigate('Main', { screen: 'SessionsTab', params: { initialTab: 'past' } });
               }}
             >
-              <Text style={[styles.endedBtnText, styles.endedBtnPrimaryText]}>Go home</Text>
+              <Text style={[styles.endedBtnText, styles.endedBtnPrimaryText]}>Later</Text>
             </TouchableOpacity>
           </View>
         </View>

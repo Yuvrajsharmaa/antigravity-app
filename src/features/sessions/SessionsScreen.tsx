@@ -22,6 +22,7 @@ interface SessionItem {
   booking_status: 'pending_payment' | 'confirmed' | 'cancelled' | 'completed' | 'failed';
   scheduled_start_at: string;
   scheduled_end_at: string;
+  participant_id: string;
   participant_name: string;
   participant_avatar: string | null;
   participant_subtitle: string;
@@ -63,7 +64,7 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
           .from('bookings')
           .select(`
             id, slot_id, status, scheduled_start_at, scheduled_end_at, amount_inr, session_type,
-            users:user_id (display_name, first_name, avatar_url),
+            users:user_id (id, display_name, first_name, avatar_url),
             sessions (id, status, video_call_id)
           `)
           .eq('therapist_id', user.id);
@@ -80,6 +81,7 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
             booking_status: booking.status,
             scheduled_start_at: booking.scheduled_start_at,
             scheduled_end_at: booking.scheduled_end_at,
+            participant_id: participant?.id || '',
             participant_name: participant?.display_name || participant?.first_name || 'Client',
             participant_avatar: participant?.avatar_url || null,
             participant_subtitle: 'Client',
@@ -94,7 +96,7 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
         const { data, error } = await supabase
           .from('bookings')
           .select(`
-            id, slot_id, status, scheduled_start_at, scheduled_end_at, amount_inr, session_type,
+            id, therapist_id, slot_id, status, scheduled_start_at, scheduled_end_at, amount_inr, session_type,
             therapists:therapist_id (
               headline,
               profiles (display_name, avatar_url)
@@ -116,6 +118,7 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
             booking_status: booking.status,
             scheduled_start_at: booking.scheduled_start_at,
             scheduled_end_at: booking.scheduled_end_at,
+            participant_id: booking.therapist_id,
             participant_name: profile?.display_name || 'Therapist',
             participant_avatar: profile?.avatar_url || null,
             participant_subtitle: therapist?.headline || 'Therapist',
@@ -282,6 +285,10 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
     const sc = getStatusConfig(item);
     const joinable = canJoin(item);
     const showConfirm = (isTherapistMode || isDevAdmin) && item.booking_status === 'pending_payment';
+    const showPrep =
+      tab === 'upcoming' &&
+      !['cancelled', 'completed', 'failed'].includes(item.booking_status) &&
+      item.session_type === 'video';
     const confirmLabel = isTherapistMode ? 'Confirm booking' : 'Dev: Confirm booking';
 
     return (
@@ -307,27 +314,60 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
           />
         )}
 
-        {joinable && (
-          <TouchableOpacity
-            style={styles.joinBtn}
-            onPress={() =>
-              navigation.navigate('VideoCall', {
-                session: {
-                  id: item.session_id,
-                  booking_id: item.booking_id,
-                  scheduled_start_at: item.scheduled_start_at,
-                  scheduled_end_at: item.scheduled_end_at,
-                  participant_name: item.participant_name,
-                  participant_avatar: item.participant_avatar,
-                  status: item.session_status || 'scheduled',
-                  video_call_id: item.video_call_id,
-                },
-              })
-            }
-          >
-            <Ionicons name="videocam" size={18} color={Colors.text.inverse} />
-            <Text style={styles.joinBtnText}>Join session</Text>
-          </TouchableOpacity>
+        {(showPrep || joinable) && (
+          <View style={styles.sessionActionsRow}>
+            {showPrep && (
+              <TouchableOpacity
+                style={styles.prepBtn}
+                onPress={() =>
+                  navigation.navigate('SessionPrep', {
+                    session: {
+                      id: item.session_id,
+                      booking_id: item.booking_id,
+                      scheduled_start_at: item.scheduled_start_at,
+                      scheduled_end_at: item.scheduled_end_at,
+                      participant_id: item.participant_id,
+                      participant_name: item.participant_name,
+                      participant_avatar: item.participant_avatar,
+                      status: item.session_status || 'scheduled',
+                      video_call_id: item.video_call_id,
+                      booking_status: item.booking_status,
+                      session_type: item.session_type,
+                    },
+                  })
+                }
+              >
+                <Ionicons name="sparkles-outline" size={16} color={Colors.text.primary} />
+                <Text style={styles.prepBtnText}>Session prep</Text>
+              </TouchableOpacity>
+            )}
+
+            {joinable && (
+              <TouchableOpacity
+                style={styles.joinBtn}
+                onPress={() =>
+                  navigation.navigate('VideoCall', {
+                    session: {
+                      id: item.session_id,
+                      booking_id: item.booking_id,
+                      scheduled_start_at: item.scheduled_start_at,
+                      scheduled_end_at: item.scheduled_end_at,
+                      participant_id: item.participant_id,
+                      participant_name: item.participant_name,
+                      participant_avatar: item.participant_avatar,
+                      status: item.session_status || 'scheduled',
+                      video_call_id: item.video_call_id,
+                      booking_status: item.booking_status,
+                      session_type: item.session_type,
+                    },
+                  })
+                }
+              >
+                <Ionicons name="videocam" size={18} color={Colors.text.inverse} />
+                <Text style={styles.joinBtnText}>Join session</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         )}
 
         {!joinable && item.booking_status === 'confirmed' && !item.session_id && (
@@ -456,6 +496,7 @@ const styles = StyleSheet.create({
     ...Typography.micro,
   },
   joinBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -471,5 +512,25 @@ const styles = StyleSheet.create({
   helperText: {
     ...Typography.caption,
     color: Colors.text.secondary,
+  },
+  sessionActionsRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  prepBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    borderWidth: 1,
+    borderColor: Colors.stroke.medium,
+    backgroundColor: Colors.bg.secondary,
+    paddingVertical: Spacing.sm,
+    borderRadius: Radius.lg,
+  },
+  prepBtnText: {
+    ...Typography.bodyEmphasis,
+    color: Colors.text.primary,
   },
 });

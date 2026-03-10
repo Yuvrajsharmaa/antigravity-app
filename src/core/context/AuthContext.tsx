@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../../services/supabase';
 import { Profile } from '../models/types';
+import { scheduleAdaptiveWellbeingReminders } from '../utils/wellbeingNotifications';
 
 interface AuthContextType {
   session: Session | null;
@@ -146,6 +147,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const isDevAdmin =
     profile?.role === 'admin' && isDevAdminEmail(profile?.email || session?.user?.email);
+
+  useEffect(() => {
+    if (!session?.user?.id || !profile) return;
+    if (profile.role === 'therapist') return;
+
+    scheduleAdaptiveWellbeingReminders(session.user.id).catch(() => {
+      // Notification scheduling is best-effort.
+    });
+  }, [profile, session?.user?.id]);
 
   return (
     <AuthContext.Provider

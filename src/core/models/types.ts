@@ -16,6 +16,10 @@ export interface UserPreferences {
   user_id: string;
   intent_tags: string[];
   session_preference: 'chat' | 'video' | 'both';
+  wellbeing_reminders_enabled: boolean;
+  wellbeing_reminder_time: string;
+  quiet_hours_start: string;
+  quiet_hours_end: string;
   created_at: string;
   updated_at: string;
 }
@@ -120,6 +124,19 @@ export interface ClientMetric {
   sleep_hours: number;
   journal_entry: string | null;
   care_score_snapshot: number;
+  created_at: string;
+}
+
+export type RiskLevel = 'high' | 'medium' | 'stable';
+
+export interface CareNudgeEvent {
+  id: string;
+  user_id: string;
+  therapist_id: string | null;
+  trigger_type: string;
+  risk_level: RiskLevel;
+  source: 'system_auto' | 'therapist_manual';
+  message_preview: string | null;
   created_at: string;
 }
 

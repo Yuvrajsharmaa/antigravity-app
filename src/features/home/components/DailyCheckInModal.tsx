@@ -5,6 +5,11 @@ import { Colors, Typography, Spacing, Radius } from '../../../core/theme';
 import { supabase } from '../../../services/supabase';
 import { useAuth } from '../../../core/context/AuthContext';
 import { BackendSetupCard } from '../../../core/components';
+import { assessCareRisk } from '../../../core/utils/careRisk';
+import {
+  scheduleAdaptiveWellbeingReminders,
+  triggerSupportiveNudgeNotification,
+} from '../../../core/utils/wellbeingNotifications';
 
 interface DailyCheckInModalProps {
   visible: boolean;
@@ -85,6 +90,44 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
       });
 
       if (error) throw error;
+
+      const { data: riskMetrics } = await supabase
+        .from('client_metrics')
+        .select('created_at, stress_level, care_score_snapshot')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      const risk = assessCareRisk(riskMetrics || []);
+      if (risk.level === 'high') {
+        const supportiveMessage =
+          'Your recent check-in suggests you might need extra support. We gently notified your therapist.';
+
+        const { data: conversations } = await supabase
+          .from('conversations')
+          .select('therapist_id')
+          .eq('user_id', user.id);
+
+        const events = (conversations || [])
+          .map((row) => row.therapist_id)
+          .filter(Boolean)
+          .map((therapistId) => ({
+            user_id: user.id,
+            therapist_id: therapistId,
+            trigger_type: 'care_score_high_risk',
+            risk_level: 'high',
+            source: 'system_auto',
+            message_preview: supportiveMessage,
+          }));
+
+        if (events.length > 0) {
+          await supabase.from('care_nudge_events').insert(events);
+        }
+
+        await triggerSupportiveNudgeNotification();
+      }
+
+      await scheduleAdaptiveWellbeingReminders(user.id);
       
       onSuccess();
       onClose();

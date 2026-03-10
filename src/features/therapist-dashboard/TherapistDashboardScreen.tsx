@@ -8,6 +8,8 @@ import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useClientMetricsReadiness } from '../../core/hooks/useClientMetricsReadiness';
+import { assessCareRisk, riskPriority } from '../../core/utils/careRisk';
+import { RiskLevel } from '../../core/models/types';
 
 interface DashboardClient {
   id: string;
@@ -15,7 +17,9 @@ interface DashboardClient {
   name: string;
   avatar: string | null;
   alertMsg: string;
-  isHighAlert: boolean;
+  riskLevel: RiskLevel;
+  hasAutoNudge: boolean;
+  lastNudgeAt: string | null;
 }
 
 interface UpcomingSession {
@@ -23,8 +27,10 @@ interface UpcomingSession {
   slotId: string | null;
   bookingStatus: 'pending_payment' | 'confirmed' | 'cancelled' | 'completed' | 'failed';
   scheduledStartAt: string;
+  scheduledEndAt: string;
   amountInr: number;
   sessionType: 'video' | 'chat';
+  clientId: string;
   clientName: string;
   clientAvatar: string | null;
   sessionId: string | null;
@@ -71,7 +77,7 @@ export const TherapistDashboardScreen: React.FC = () => {
         .map((row: any) => getFirst<any>(row.users)?.id)
         .filter(Boolean);
 
-      let metricsByUser: Record<string, any> = {};
+      let metricsByUser: Record<string, any[]> = {};
       if (ready && clientIds.length > 0) {
         const { data: metrics, error: metricsError } = await supabase
           .from('client_metrics')
@@ -83,8 +89,25 @@ export const TherapistDashboardScreen: React.FC = () => {
           setError(metricsError.message || 'Unable to evaluate CareScore alerts right now.');
         } else {
           for (const item of metrics || []) {
-            if (!metricsByUser[item.user_id]) {
-              metricsByUser[item.user_id] = item;
+            metricsByUser[item.user_id] = metricsByUser[item.user_id] || [];
+            metricsByUser[item.user_id].push(item);
+          }
+        }
+      }
+
+      let latestNudgeByUser: Record<string, string> = {};
+      if (clientIds.length > 0) {
+        const { data: nudgeEvents, error: nudgeError } = await supabase
+          .from('care_nudge_events')
+          .select('user_id, created_at')
+          .eq('therapist_id', user.id)
+          .in('user_id', clientIds)
+          .order('created_at', { ascending: false });
+
+        if (!nudgeError) {
+          for (const event of nudgeEvents || []) {
+            if (!latestNudgeByUser[event.user_id]) {
+              latestNudgeByUser[event.user_id] = event.created_at;
             }
           }
         }
@@ -93,22 +116,12 @@ export const TherapistDashboardScreen: React.FC = () => {
       const nextClients: DashboardClient[] = conversationRows.map((row: any) => {
         const profileRow = getFirst<any>(row.users);
         const clientId = profileRow?.id;
-        const latestMetric = clientId ? metricsByUser[clientId] : null;
+        const clientMetrics = clientId ? metricsByUser[clientId] || [] : [];
+        const risk = assessCareRisk(clientMetrics.slice(0, 5));
+        const hasAutoNudge = clientId ? Boolean(latestNudgeByUser[clientId]) : false;
 
-        let alertMsg = 'No logged check-ins yet';
-        let isHighAlert = false;
-
-        if (latestMetric) {
-          if (latestMetric.stress_level >= 4) {
-            alertMsg = 'High stress reported';
-            isHighAlert = true;
-          } else if (latestMetric.care_score_snapshot < 50) {
-            alertMsg = 'Low CareScore trend';
-            isHighAlert = true;
-          } else {
-            alertMsg = 'Stable check-in trend';
-          }
-        } else if (!ready) {
+        let alertMsg = risk.reason;
+        if (!ready) {
           alertMsg = 'CareScore unavailable until setup is completed';
         }
 
@@ -118,11 +131,20 @@ export const TherapistDashboardScreen: React.FC = () => {
           name: profileRow?.display_name || profileRow?.first_name || 'Client',
           avatar: profileRow?.avatar_url || null,
           alertMsg,
-          isHighAlert,
+          riskLevel: ready ? risk.level : 'stable',
+          hasAutoNudge,
+          lastNudgeAt: clientId ? latestNudgeByUser[clientId] || null : null,
         };
       });
 
-      nextClients.sort((a, b) => Number(b.isHighAlert) - Number(a.isHighAlert));
+      nextClients.sort((a, b) => {
+        const riskDiff = riskPriority(b.riskLevel) - riskPriority(a.riskLevel);
+        if (riskDiff !== 0) return riskDiff;
+
+        const nudgeTimeA = a.lastNudgeAt ? new Date(a.lastNudgeAt).getTime() : 0;
+        const nudgeTimeB = b.lastNudgeAt ? new Date(b.lastNudgeAt).getTime() : 0;
+        return nudgeTimeB - nudgeTimeA;
+      });
 
       const nowIso = new Date().toISOString();
       const weekAheadIso = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -130,8 +152,8 @@ export const TherapistDashboardScreen: React.FC = () => {
       const { data: bookingData, error: bookingError } = await supabase
         .from('bookings')
         .select(`
-          id, slot_id, status, scheduled_start_at, amount_inr, session_type,
-          users:user_id (display_name, first_name, avatar_url),
+          id, slot_id, status, scheduled_start_at, scheduled_end_at, amount_inr, session_type,
+          users:user_id (id, display_name, first_name, avatar_url),
           sessions (id, status, video_call_id)
         `)
         .eq('therapist_id', user.id)
@@ -151,8 +173,10 @@ export const TherapistDashboardScreen: React.FC = () => {
             slotId: row.slot_id,
             bookingStatus: row.status,
             scheduledStartAt: row.scheduled_start_at,
+            scheduledEndAt: row.scheduled_end_at,
             amountInr: row.amount_inr,
             sessionType: row.session_type,
+            clientId: clientProfile?.id || '',
             clientName: clientProfile?.display_name || clientProfile?.first_name || 'Client',
             clientAvatar: clientProfile?.avatar_url || null,
             sessionId: session?.id || null,
@@ -205,6 +229,31 @@ export const TherapistDashboardScreen: React.FC = () => {
     if (!item.sessionId) return false;
     if (item.sessionStatus && ['completed', 'cancelled'].includes(item.sessionStatus)) return false;
     return true;
+  };
+
+  const getRiskVisuals = (level: RiskLevel) => {
+    if (level === 'high') {
+      return {
+        label: 'High',
+        badgeBg: Colors.status.dangerSoft,
+        badgeText: Colors.status.danger,
+        icon: 'alert-circle-outline' as const,
+      };
+    }
+    if (level === 'medium') {
+      return {
+        label: 'Medium',
+        badgeBg: Colors.status.warningSoft,
+        badgeText: Colors.status.warning,
+        icon: 'warning-outline' as const,
+      };
+    }
+    return {
+      label: 'Stable',
+      badgeBg: Colors.status.successSoft,
+      badgeText: Colors.status.success,
+      icon: 'checkmark-circle-outline' as const,
+    };
   };
 
   const confirmBooking = async (item: UpcomingSession) => {
@@ -266,17 +315,17 @@ export const TherapistDashboardScreen: React.FC = () => {
     }
   };
 
-  const handleSendNudge = async (clientName: string, conversationId: string) => {
+  const handleSendNudge = async (clientName: string, conversationId: string, reason: string) => {
     Alert.alert(
       'Send check-in',
-      `Send an automated check-in template to ${clientName}?`,
+      `Send a supportive follow-up to ${clientName}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Send Template',
           onPress: async () => {
             try {
-              const text = `Hi ${clientName}, I noticed you haven't checked in lately. Take a deep breath and let me know how you're feeling today!`;
+              const text = `Hi ${clientName}, I noticed your recent trend: ${reason}. Take a deep breath and let me know how you're feeling today.`;
               await supabase.from('messages').insert({
                 conversation_id: conversationId,
                 sender_id: user?.id,
@@ -370,12 +419,36 @@ export const TherapistDashboardScreen: React.FC = () => {
                   <Text style={styles.clientName}>{client.name}</Text>
                   <Text style={styles.clientLastContact}>Conversation active</Text>
                 </View>
-                {client.isHighAlert && <View style={styles.alertDot} />}
+                <View
+                  style={[
+                    styles.riskBadge,
+                    { backgroundColor: getRiskVisuals(client.riskLevel).badgeBg },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.riskBadgeText,
+                      { color: getRiskVisuals(client.riskLevel).badgeText },
+                    ]}
+                  >
+                    {getRiskVisuals(client.riskLevel).label}
+                  </Text>
+                </View>
               </View>
               <View style={styles.issueContainer}>
-                <Ionicons name="warning-outline" size={16} color={Colors.status.warning} />
-                <Text style={styles.issueText}>{client.alertMsg}</Text>
+                <Ionicons
+                  name={getRiskVisuals(client.riskLevel).icon}
+                  size={16}
+                  color={getRiskVisuals(client.riskLevel).badgeText}
+                />
+                <Text style={[styles.issueText, { color: getRiskVisuals(client.riskLevel).badgeText }]}>{client.alertMsg}</Text>
               </View>
+              {client.hasAutoNudge && (
+                <View style={styles.nudgeFlag}>
+                  <Ionicons name="notifications-outline" size={14} color={Colors.accent.primary} />
+                  <Text style={styles.nudgeFlagText}>Auto nudge triggered recently</Text>
+                </View>
+              )}
               <View style={styles.actionButtons}>
                 <TouchableOpacity
                   style={[styles.actionBtn, styles.actionBtnOutline]}
@@ -386,7 +459,7 @@ export const TherapistDashboardScreen: React.FC = () => {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.actionBtn, styles.actionBtnPrimary]}
-                  onPress={() => handleSendNudge(client.name, client.conversationId)}
+                  onPress={() => handleSendNudge(client.name, client.conversationId, client.alertMsg)}
                 >
                   <Ionicons name="paper-plane-outline" size={18} color={Colors.text.inverse} />
                   <Text style={styles.actionBtnTextPrimary}>Send Check-in</Text>
@@ -446,28 +519,59 @@ export const TherapistDashboardScreen: React.FC = () => {
                       {actionLoadingId === session.bookingId ? 'Confirming...' : 'Confirm Booking'}
                     </Text>
                   </TouchableOpacity>
-                ) : canJoin(session) ? (
-                  <TouchableOpacity
-                    style={[styles.actionBtn, styles.actionBtnPrimary]}
-                    onPress={() =>
-                      navigation.navigate('VideoCall', {
-                        session: {
-                          id: session.sessionId,
-                          booking_id: session.bookingId,
-                          scheduled_start_at: session.scheduledStartAt,
-                          scheduled_end_at: new Date(new Date(session.scheduledStartAt).getTime() + 45 * 60000).toISOString(),
-                          participant_name: session.clientName,
-                          participant_avatar: session.clientAvatar,
-                          status: session.sessionStatus || 'scheduled',
-                          video_call_id: session.videoCallId,
-                        },
-                      })
-                    }
-                  >
-                    <Text style={styles.actionBtnTextPrimary}>Join Session</Text>
-                  </TouchableOpacity>
                 ) : (
-                  <Text style={styles.sessionHint}>Session room is being prepared.</Text>
+                  <View style={styles.sessionActionRow}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, styles.actionBtnOutline]}
+                      onPress={() =>
+                        navigation.navigate('SessionPrep', {
+                          session: {
+                            id: session.sessionId,
+                            booking_id: session.bookingId,
+                            scheduled_start_at: session.scheduledStartAt,
+                            scheduled_end_at: session.scheduledEndAt,
+                            participant_id: session.clientId,
+                            participant_name: session.clientName,
+                            participant_avatar: session.clientAvatar,
+                            status: session.sessionStatus || 'scheduled',
+                            video_call_id: session.videoCallId,
+                            booking_status: session.bookingStatus,
+                            session_type: session.sessionType,
+                          },
+                        })
+                      }
+                    >
+                      <Text style={styles.actionBtnTextOutline}>Session Prep</Text>
+                    </TouchableOpacity>
+                    {canJoin(session) ? (
+                      <TouchableOpacity
+                        style={[styles.actionBtn, styles.actionBtnPrimary]}
+                        onPress={() =>
+                          navigation.navigate('VideoCall', {
+                            session: {
+                              id: session.sessionId,
+                              booking_id: session.bookingId,
+                              scheduled_start_at: session.scheduledStartAt,
+                              scheduled_end_at: session.scheduledEndAt,
+                              participant_id: session.clientId,
+                              participant_name: session.clientName,
+                              participant_avatar: session.clientAvatar,
+                              status: session.sessionStatus || 'scheduled',
+                              video_call_id: session.videoCallId,
+                              booking_status: session.bookingStatus,
+                              session_type: session.sessionType,
+                            },
+                          })
+                        }
+                      >
+                        <Text style={styles.actionBtnTextPrimary}>Join Session</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={styles.sessionHintWrap}>
+                        <Text style={styles.sessionHint}>Session room is being prepared.</Text>
+                      </View>
+                    )}
+                  </View>
                 )}
               </View>
             </Card>
@@ -537,11 +641,13 @@ const styles = StyleSheet.create({
   },
   clientName: { ...Typography.bodySemibold, color: Colors.text.primary },
   clientLastContact: { ...Typography.caption, color: Colors.text.secondary, marginTop: 2 },
-  alertDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.status.danger,
+  riskBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: Radius.pill,
+  },
+  riskBadgeText: {
+    ...Typography.micro,
   },
   issueContainer: {
     flexDirection: 'row',
@@ -551,7 +657,20 @@ const styles = StyleSheet.create({
     padding: Spacing.sm,
     borderRadius: Radius.md,
   },
-  issueText: { ...Typography.captionEmphasis, color: Colors.status.warning, flex: 1 },
+  issueText: { ...Typography.captionEmphasis, color: Colors.text.secondary, flex: 1 },
+  nudgeFlag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.accent.soft,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+  },
+  nudgeFlagText: {
+    ...Typography.caption,
+    color: Colors.accent.dark,
+  },
   actionButtons: {
     flexDirection: 'row',
     gap: Spacing.sm,
@@ -612,6 +731,14 @@ const styles = StyleSheet.create({
   },
   sessionActions: {
     marginTop: Spacing.xs,
+  },
+  sessionActionRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    alignItems: 'center',
+  },
+  sessionHintWrap: {
+    flex: 1,
   },
   sessionHint: {
     ...Typography.caption,
