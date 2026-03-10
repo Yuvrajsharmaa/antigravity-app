@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
 import { Card, Avatar, EmptyState, LoadingState, Button, ErrorState } from '../../core/components';
@@ -42,6 +43,7 @@ const getFirst = <T,>(value: T | T[] | null | undefined): T | undefined => {
 
 export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navigation, route }) => {
   const { user, isTherapistMode, isDevAdmin } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -341,7 +343,12 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
         )}
 
         {!joinable && item.booking_status === 'confirmed' && !item.session_id && (
-          <Text style={styles.helperText}>Video room is being prepared. Refresh shortly.</Text>
+          <View style={styles.helperRow}>
+            <Text style={styles.helperText}>Video room is being prepared.</Text>
+            <TouchableOpacity onPress={fetchSessions}>
+              <Text style={styles.helperRetry}>Refresh</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </Card>
     );
@@ -388,14 +395,14 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
               : 'Completed or cancelled sessions will appear here.'
           }
           actionLabel={tab === 'upcoming' && !isTherapistMode ? 'Find a therapist' : undefined}
-          onAction={tab === 'upcoming' && !isTherapistMode ? () => navigation.navigate('HomeTab') : undefined}
+          onAction={tab === 'upcoming' && !isTherapistMode ? () => navigation.navigate('MatchTab') : undefined}
         />
       ) : (
         <FlatList
           data={sessions}
           renderItem={renderSession}
           keyExtractor={(item) => item.booking_id}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: tabBarHeight + Spacing.xxl }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -438,7 +445,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.stroke.subtle,
   },
   tabActive: {
-    backgroundColor: Colors.accent.primary,
+    backgroundColor: Colors.accent.soft,
     borderColor: Colors.accent.primary,
   },
   tabText: {
@@ -446,7 +453,7 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
   },
   tabTextActive: {
-    color: Colors.text.inverse,
+    color: Colors.accent.dark,
   },
   listContent: {
     paddingHorizontal: Spacing.xl,
@@ -455,6 +462,7 @@ const styles = StyleSheet.create({
   },
   sessionCard: {
     gap: Spacing.sm,
+    borderRadius: Radius.xl,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -479,7 +487,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.xs,
-    backgroundColor: Colors.status.success,
+    backgroundColor: Colors.accent.primary,
     paddingVertical: Spacing.sm,
     borderRadius: Radius.lg,
   },
@@ -490,6 +498,15 @@ const styles = StyleSheet.create({
   helperText: {
     ...Typography.caption,
     color: Colors.text.secondary,
+  },
+  helperRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  helperRetry: {
+    ...Typography.captionEmphasis,
+    color: Colors.accent.primary,
   },
   sessionActionsRow: {
     flexDirection: 'row',

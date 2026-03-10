@@ -1,4 +1,5 @@
 import { supabase } from '../../services/supabase';
+import { NudgeCooldownState } from '../models/types';
 
 interface EnsureConversationInput {
   userId: string;
@@ -56,14 +57,14 @@ export const ensureSessionForBooking = async ({
   bookingId,
   videoCallId,
 }: EnsureSessionInput): Promise<string> => {
-  const { data: existing, error: readError } = await supabase
+  const { data: existingRows, error: readError } = await supabase
     .from('sessions')
     .select('id')
     .eq('booking_id', bookingId)
-    .maybeSingle();
+    .limit(1);
 
   if (readError) throw readError;
-  if (existing?.id) return existing.id;
+  if (existingRows?.[0]?.id) return existingRows[0].id;
 
   const { data: created, error: createError } = await supabase
     .from('sessions')
@@ -83,29 +84,25 @@ export const confirmBookingAndEnsureSession = async ({
   bookingId,
   slotId,
 }: ConfirmBookingInput) => {
-  const { data: slotLock, error: slotError } = await supabase
-    .from('availability_slots')
-    .update({ is_available: false })
-    .eq('id', slotId)
-    .eq('is_available', true)
-    .select('id')
-    .maybeSingle();
+  const { error } = await supabase.rpc('confirm_booking_atomic', {
+    p_booking_id: bookingId,
+    p_slot_id: slotId,
+  });
 
-  if (slotError) throw slotError;
-  if (!slotLock) throw new Error('This slot is no longer available.');
-
-  const { data: bookingUpdate, error: bookingError } = await supabase
-    .from('bookings')
-    .update({ status: 'confirmed', updated_at: new Date().toISOString() })
-    .eq('id', bookingId)
-    .eq('status', 'pending_payment')
-    .select('id')
-    .maybeSingle();
-
-  if (bookingError) throw bookingError;
-  if (!bookingUpdate) throw new Error('Booking could not be confirmed.');
-
-  await ensureSessionForBooking({ bookingId });
+  if (error) {
+    const code = String(error.code || '').toUpperCase();
+    const message = `${error.message || ''}`.toUpperCase();
+    if (code === 'PGRST202') {
+      throw new Error('Backend function missing. Run migration 20260311101500_flow_stabilization_policies_and_atomic_confirm.sql');
+    }
+    if (code === 'P0001' && message.includes('SLOT_UNAVAILABLE')) {
+      throw new Error('This slot is no longer available.');
+    }
+    if (code === 'P0001' && message.includes('BOOKING_NOT_CONFIRMABLE')) {
+      throw new Error('Booking could not be confirmed.');
+    }
+    throw error;
+  }
 };
 
 export const createCareNudgeEvent = async ({
@@ -126,6 +123,44 @@ export const createCareNudgeEvent = async ({
   });
 
   if (error) throw error;
+};
+
+export const getNudgeCooldownState = async ({
+  userId,
+  source,
+  therapistId,
+  cooldownHours = 24,
+}: {
+  userId: string;
+  source: 'system_auto' | 'therapist_manual';
+  therapistId?: string | null;
+  cooldownHours?: number;
+}): Promise<NudgeCooldownState> => {
+  const sinceIso = new Date(Date.now() - cooldownHours * 60 * 60 * 1000).toISOString();
+
+  let query = supabase
+    .from('care_nudge_events')
+    .select('created_at')
+    .eq('user_id', userId)
+    .eq('source', source)
+    .gte('created_at', sinceIso)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (source === 'therapist_manual' && therapistId) {
+    query = query.eq('therapist_id', therapistId);
+  }
+
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+
+  return {
+    userId,
+    source,
+    cooldownHours,
+    lastTriggeredAt: data?.created_at || null,
+    isBlocked: Boolean(data?.created_at),
+  };
 };
 
 export const completeSessionAndBooking = async ({
@@ -157,4 +192,3 @@ export const completeSessionAndBooking = async ({
     if (bookingError) throw bookingError;
   }
 };
-

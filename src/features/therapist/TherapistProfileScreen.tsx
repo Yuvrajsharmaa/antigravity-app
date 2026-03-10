@@ -11,21 +11,28 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
 import { Button, Card, Avatar, PillChip, LoadingState, ErrorState } from '../../core/components';
-import { Therapist, AvailabilitySlot } from '../../core/models/types';
+import { Therapist, AvailabilitySlot, MatchReasonChip } from '../../core/models/types';
 import { supabase } from '../../services/supabase';
 import { careBuddyLine } from '../../core/utils/careBuddy';
+import { useAuth } from '../../core/context/AuthContext';
+import { ensureConversation } from '../../core/services/careFlowService';
+import { TherapistProfileRouteParams } from '../../navigation/types';
 
 export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
-  const { therapist } = route.params as { therapist: Therapist };
+  const { user } = useAuth();
+  const { therapist, matchReasonChips } = (route.params || {}) as TherapistProfileRouteParams;
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(true);
   const [slotsError, setSlotsError] = useState<string | null>(null);
+  const [openingChat, setOpeningChat] = useState(false);
 
   useEffect(() => {
-    fetchSlots();
+    if (therapist?.id) {
+      fetchSlots();
+    }
   }, []);
 
   const fetchSlots = async () => {
@@ -70,6 +77,41 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
     if (d.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
     return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
   };
+
+  const startChat = async () => {
+    if (!user?.id || !therapist?.id) return;
+    setOpeningChat(true);
+    try {
+      const conversationId = await ensureConversation({
+        userId: user.id,
+        therapistId: therapist.id,
+      });
+      navigation.navigate('MessagesTab', {
+        screen: 'Chat',
+        params: {
+          conversationId,
+          therapistName: therapist.display_name,
+          therapistAvatar: therapist.avatar_url,
+          therapistId: therapist.id,
+        },
+      });
+    } catch (error: any) {
+      Alert.alert('Unable to open chat', error.message || 'Please try again.');
+    } finally {
+      setOpeningChat(false);
+    }
+  };
+
+  if (!therapist?.id) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <ErrorState
+          message="Therapist details are missing. Please return to Match and open a profile again."
+          onRetry={() => navigation.goBack()}
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -143,6 +185,15 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
           <Text style={styles.fitCopy}>
             {therapist.headline || 'Supportive and structured care.'} Your first session focuses on understanding context, not rushing conclusions.
           </Text>
+          {matchReasonChips && matchReasonChips.length > 0 ? (
+            <View style={styles.matchChipRow}>
+              {matchReasonChips.map((chip) => (
+                <View key={chip.id} style={styles.matchChip}>
+                  <Text style={styles.matchChipText}>{chip.label}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
           <Text style={styles.fitHint}>{careBuddyLine('reassure')}</Text>
         </Card>
 
@@ -179,9 +230,10 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
       {/* Sticky bottom CTA */}
       <View style={styles.stickyBottom}>
         <Button
-          title="Start chat"
+          title={openingChat ? 'Opening chat...' : 'Start chat'}
           variant="secondary"
-          onPress={() => navigation.navigate('MessagesTab', { screen: 'Chat', params: { therapist } })}
+          onPress={startChat}
+          loading={openingChat}
           fullWidth={false}
           style={styles.chatBtn}
         />
@@ -279,6 +331,22 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     color: Colors.accent.primary,
     marginTop: Spacing.xs,
+  },
+  matchChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+    marginTop: Spacing.sm,
+  },
+  matchChip: {
+    backgroundColor: Colors.accent.soft,
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+  },
+  matchChipText: {
+    ...Typography.caption,
+    color: Colors.accent.dark,
   },
   specialtiesRow: {
     flexDirection: 'row',

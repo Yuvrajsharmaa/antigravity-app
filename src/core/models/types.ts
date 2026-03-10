@@ -1,6 +1,8 @@
+export type AppRole = 'user' | 'therapist' | 'admin';
+
 export interface Profile {
   id: string;
-  role: 'user' | 'therapist' | 'admin';
+  role: AppRole;
   first_name: string | null;
   display_name: string | null;
   avatar_url: string | null;
@@ -51,6 +53,51 @@ export interface Therapist {
   display_name?: string;
   avatar_url?: string | null;
   first_name?: string;
+}
+
+export interface MatchReasonChip {
+  id: string;
+  label: string;
+}
+
+export interface MatchScoreBreakdown {
+  intent: number;
+  careStyle: number;
+  language: number;
+  availability: number;
+  quality: number;
+  total: number;
+}
+
+export interface MatchedTherapist {
+  therapist: Therapist;
+  score: number;
+  scoreBreakdown: MatchScoreBreakdown;
+  reasonChips: MatchReasonChip[];
+  nextAvailableAt: string | null;
+  availableSlots72h: number;
+}
+
+export interface OnboardingQuestion {
+  id: string;
+  title: string;
+  helper?: string;
+  required: boolean;
+}
+
+export interface OnboardingStepConfig {
+  id: string;
+  title: string;
+  role: 'shared' | 'client' | 'therapist';
+  questions: OnboardingQuestion[];
+}
+
+export interface OnboardingResponseDraft {
+  firstName?: string;
+  intentTags?: string[];
+  language?: string;
+  sessionPreference?: 'chat' | 'video' | 'both';
+  timePreference?: 'morning' | 'afternoon' | 'evening' | 'flexible';
 }
 
 export interface AvailabilitySlot {
@@ -159,8 +206,23 @@ export interface CareJourneyState {
   completedCount: number;
   totalCount: number;
   rhythmDays: number;
+  rhythm: CareRhythmState;
   goals: CareJourneyGoal[];
   nextActionLabel: string;
+}
+
+export interface CareRhythmMarker {
+  dateKey: string;
+  dayLabel: string;
+  completed: boolean;
+  isToday: boolean;
+}
+
+export interface CareRhythmState {
+  currentStreak: number;
+  highestStreak: number;
+  repairsAvailable: number;
+  weekMarkers: CareRhythmMarker[];
 }
 
 export interface ConversationHealthState {
@@ -168,6 +230,20 @@ export interface ConversationHealthState {
   awaitingReply: boolean;
   lastActivityAt: string | null;
   recentMood: string | null;
+}
+
+export interface RoleModeContract {
+  role: AppRole;
+  canUseTherapistMode: boolean;
+  canAccessMatchFlow: boolean;
+}
+
+export interface NudgeCooldownState {
+  userId: string;
+  source: 'system_auto' | 'therapist_manual';
+  lastTriggeredAt: string | null;
+  cooldownHours: number;
+  isBlocked: boolean;
 }
 
 export interface CareNudgeEvent {

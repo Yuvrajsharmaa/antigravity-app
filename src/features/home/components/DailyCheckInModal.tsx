@@ -12,7 +12,7 @@ import {
 } from '../../../core/utils/wellbeingNotifications';
 import { careBuddyLine } from '../../../core/utils/careBuddy';
 import * as Haptics from 'expo-haptics';
-import { createCareNudgeEvent } from '../../../core/services/careFlowService';
+import { createCareNudgeEvent, getNudgeCooldownState } from '../../../core/services/careFlowService';
 
 interface DailyCheckInModalProps {
   visible: boolean;
@@ -104,6 +104,13 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
 
       const risk = assessCareRisk(riskMetrics || []);
       if (risk.level === 'high') {
+        const cooldown = await getNudgeCooldownState({
+          userId: user.id,
+          source: 'system_auto',
+          cooldownHours: 24,
+        });
+
+        if (!cooldown.isBlocked) {
         const supportiveMessage =
           'Your recent check-in suggests you might need extra support. We gently notified your therapist.';
 
@@ -115,18 +122,18 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
         const therapistIds = (conversations || [])
           .map((row) => row.therapist_id)
           .filter((id): id is string => Boolean(id));
-        await Promise.all(
-          therapistIds.map((therapistId) => createCareNudgeEvent({
-            userId: user.id,
-            therapistId,
-            triggerType: 'care_score_high_risk',
-            riskLevel: 'high',
-            source: 'system_auto',
-            messagePreview: supportiveMessage,
-          })),
-        );
+
+        await createCareNudgeEvent({
+          userId: user.id,
+          therapistId: therapistIds[0] || null,
+          triggerType: 'care_score_high_risk',
+          riskLevel: 'high',
+          source: 'system_auto',
+          messagePreview: supportiveMessage,
+        });
 
         await triggerSupportiveNudgeNotification();
+        }
       }
 
       await scheduleAdaptiveWellbeingReminders(user.id);
@@ -287,7 +294,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.xs,
     backgroundColor: Colors.accent.soft,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.sm,
     borderWidth: 1,
@@ -307,13 +314,13 @@ const styles = StyleSheet.create({
   moodBtn: {
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
-    borderRadius: Radius.pill,
+    borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.stroke.medium,
     backgroundColor: Colors.bg.secondary,
   },
   moodBtnActive: {
-    backgroundColor: Colors.accent.primary,
+    backgroundColor: Colors.accent.soft,
     borderColor: Colors.accent.primary,
   },
   moodText: {
@@ -321,7 +328,7 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
   },
   moodTextActive: {
-    color: Colors.text.inverse,
+    color: Colors.accent.dark,
   },
   stressRow: {
     flexDirection: 'row',
@@ -330,7 +337,7 @@ const styles = StyleSheet.create({
   stressBtn: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Colors.bg.secondary,
@@ -338,7 +345,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.stroke.medium,
   },
   stressBtnActive: {
-    backgroundColor: Colors.status.warning,
+    backgroundColor: Colors.status.warningSoft,
     borderColor: Colors.status.warning,
   },
   stressText: {
@@ -346,7 +353,7 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
   },
   stressTextActive: {
-    color: Colors.text.inverse,
+    color: Colors.status.warning,
   },
   input: {
     backgroundColor: Colors.bg.secondary,

@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
 import { Typography } from '../theme/typography';
-import { Spacing } from '../theme/spacing';
+import { Radius, Spacing } from '../theme/spacing';
 
 interface EmptyStateProps {
   icon?: keyof typeof Ionicons.glyphMap;
@@ -67,16 +67,20 @@ export const LoadingState: React.FC<{ message?: string }> = ({ message }) => (
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    minHeight: 180,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: Spacing.xxl,
-    paddingVertical: Spacing.xxxxl,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.xxl,
+    backgroundColor: Colors.bg.secondary,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
   },
   iconCircle: {
     width: 72,
     height: 72,
-    borderRadius: 36,
+    borderRadius: Radius.lg,
     backgroundColor: Colors.accent.soft,
     alignItems: 'center',
     justifyContent: 'center',
@@ -99,8 +103,12 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     marginTop: Spacing.lg,
-    paddingVertical: Spacing.xs,
+    paddingVertical: Spacing.xs + 2,
     paddingHorizontal: Spacing.lg,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.bg.tertiary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
   },
   actionText: {
     ...Typography.bodyEmphasis,

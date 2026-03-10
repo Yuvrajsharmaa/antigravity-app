@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
 import { Card, Button, EmptyState, LoadingState, BackendSetupCard, ErrorState, PillChip } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
@@ -22,6 +23,7 @@ interface JournalEntry {
 
 export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
   const { ready, requiresSetup, issue, refresh } = useClientMetricsReadiness();
 
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -147,7 +149,7 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       <FlatList
         data={entries}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: tabBarHeight + Spacing.xxl }]}
         ListHeaderComponent={
           <>
             {requiresSetup ? (
@@ -246,7 +248,14 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm,
   },
   backBtn: {
-    width: 32,
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    backgroundColor: Colors.bg.secondary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     ...Typography.bodySemibold,
@@ -260,6 +269,7 @@ const styles = StyleSheet.create({
   composeCard: {
     gap: Spacing.sm,
     marginBottom: Spacing.md,
+    borderRadius: Radius.xl,
   },
   composeTitle: {
     ...Typography.bodySemibold,
@@ -280,7 +290,7 @@ const styles = StyleSheet.create({
   },
   input: {
     minHeight: 120,
-    borderRadius: Radius.lg,
+    borderRadius: Radius.xl,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
     backgroundColor: Colors.bg.primary,
@@ -303,6 +313,7 @@ const styles = StyleSheet.create({
   },
   entryCard: {
     gap: Spacing.xs,
+    borderRadius: Radius.xl,
   },
   entryHeader: {
     flexDirection: 'row',

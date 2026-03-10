@@ -6,11 +6,23 @@ import { Colors, Typography, Spacing, Radius } from '../../core/theme';
 import { Avatar, Card } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { supabase } from '../../services/supabase';
+import { useCareJourney } from '../../core/hooks/useCareJourney';
 
 export const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const { profile, signOut, isTherapistMode, toggleTherapistMode, refreshProfile } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
+  const {
+    profile,
+    user,
+    signOut,
+    isTherapistMode,
+    canUseTherapistMode,
+    toggleTherapistMode,
+    refreshProfile,
+  } = useAuth();
+  const { journey } = useCareJourney(isTherapistMode ? null : user?.id || null);
 
   const handleSignOut = () => {
     Alert.alert('Sign out', 'Are you sure you want to sign out?', [
@@ -67,7 +79,7 @@ export const ProfileScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + Spacing.xxxl }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -93,16 +105,17 @@ export const ProfileScreen: React.FC = () => {
               <Ionicons name="chevron-forward" size={16} color={Colors.text.tertiary} />
             </TouchableOpacity>
           ))}
-          {/* Therapist Mode Toggle */}
-          <View style={styles.settingRow}>
-            <Ionicons name="medical-outline" size={20} color={Colors.accent.primary} />
-            <Text style={styles.settingLabel}>Therapist Mode</Text>
-            <Switch
-              value={isTherapistMode}
-              onValueChange={toggleTherapistMode}
-              trackColor={{ false: Colors.stroke.medium, true: Colors.accent.primary }}
-            />
-          </View>
+          {canUseTherapistMode ? (
+            <View style={styles.settingRow}>
+              <Ionicons name="medical-outline" size={20} color={Colors.accent.primary} />
+              <Text style={styles.settingLabel}>Therapist Mode</Text>
+              <Switch
+                value={isTherapistMode}
+                onValueChange={toggleTherapistMode}
+                trackColor={{ false: Colors.stroke.medium, true: Colors.accent.primary }}
+              />
+            </View>
+          ) : null}
         </Card>
 
         {/* Legal */}
@@ -115,6 +128,32 @@ export const ProfileScreen: React.FC = () => {
             </TouchableOpacity>
           ))}
         </Card>
+
+        {!isTherapistMode && journey ? (
+          <Card style={styles.rhythmCard}>
+            <View style={styles.rhythmHeader}>
+              <Text style={styles.rhythmTitle}>Care Rhythm</Text>
+              <View style={styles.rhythmBadge}>
+                <Text style={styles.rhythmBadgeText}>🔥 {journey.rhythm.currentStreak}</Text>
+              </View>
+            </View>
+            <View style={styles.rhythmMarkers}>
+              {journey.rhythm.weekMarkers.map((marker) => (
+                <View key={marker.dateKey} style={styles.rhythmMarkerWrap}>
+                  <View
+                    style={[
+                      styles.rhythmMarker,
+                      marker.completed && styles.rhythmMarkerDone,
+                      marker.isToday && styles.rhythmMarkerToday,
+                    ]}
+                  />
+                  <Text style={styles.rhythmMarkerLabel}>{marker.dayLabel}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={styles.rhythmMeta}>Best: {journey.rhythm.highestStreak} days</Text>
+          </Card>
+        ) : null}
 
         {/* Emergency notice */}
         <View style={styles.emergencyCard}>
@@ -158,6 +197,7 @@ const styles = StyleSheet.create({
     marginHorizontal: Spacing.xl,
     marginBottom: Spacing.md,
     padding: 0,
+    borderRadius: 22,
   },
   settingRow: {
     flexDirection: 'row',
@@ -178,6 +218,64 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: Radius.lg,
     marginBottom: Spacing.lg,
+  },
+  rhythmCard: {
+    marginHorizontal: Spacing.xl,
+    marginBottom: Spacing.md,
+    gap: Spacing.sm,
+    borderRadius: 22,
+  },
+  rhythmHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  rhythmTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+  },
+  rhythmBadge: {
+    backgroundColor: Colors.accent.soft,
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+  },
+  rhythmBadgeText: {
+    ...Typography.captionEmphasis,
+    color: Colors.accent.dark,
+  },
+  rhythmMarkers: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  rhythmMarkerWrap: {
+    alignItems: 'center',
+    gap: 4,
+    width: 28,
+  },
+  rhythmMarker: {
+    width: 16,
+    height: 16,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: Colors.stroke.medium,
+    backgroundColor: Colors.bg.secondary,
+  },
+  rhythmMarkerDone: {
+    backgroundColor: Colors.accent.primary,
+    borderColor: Colors.accent.primary,
+  },
+  rhythmMarkerToday: {
+    borderColor: Colors.accent.dark,
+    borderWidth: 1.5,
+  },
+  rhythmMarkerLabel: {
+    ...Typography.micro,
+    color: Colors.text.tertiary,
+  },
+  rhythmMeta: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
   },
   emergencyText: { ...Typography.caption, color: Colors.text.secondary, flex: 1, lineHeight: 18 },
   signOutBtn: {
