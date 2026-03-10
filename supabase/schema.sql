@@ -5,7 +5,7 @@
 
 -- 1. profiles
 CREATE TABLE IF NOT EXISTS public.profiles (
-  id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+  id UUID PRIMARY KEY,
   role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'therapist', 'admin')),
   first_name TEXT,
   display_name TEXT,
