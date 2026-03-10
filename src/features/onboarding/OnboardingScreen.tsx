@@ -64,6 +64,37 @@ const REMINDER_TIMES = ['09:00:00', '14:00:00', '19:00:00'];
 const QUIET_START_OPTIONS = ['20:00:00', '21:00:00', '22:00:00'];
 const QUIET_END_OPTIONS = ['07:00:00', '08:00:00', '09:00:00'];
 const THERAPIST_STYLE_OPTIONS = ['Warm and conversational', 'Structured and goal-focused', 'Mindfulness-led'];
+const CLIENT_STEP_LABELS = ['Welcome', 'Name', 'Intent', 'Preferences', 'Check-in', 'Consent'];
+const CLIENT_STEP_HINTS = [
+  'A calm start in under 2 minutes.',
+  'Tell us what to call you.',
+  'Pick one or two reasons for joining.',
+  'Help us suggest better therapist matches.',
+  'Optional context for a smoother first session.',
+  'Safety and consent before you continue.',
+];
+const THERAPIST_STEP_LABELS = ['Welcome', 'Profile', 'Expertise', 'Practice', 'Compliance'];
+const THERAPIST_STEP_HINTS = [
+  'Set the tone of your Care Space presence.',
+  'Add your display profile.',
+  'Define specialties and language coverage.',
+  'Choose your style and preferred format.',
+  'Confirm boundaries and confidentiality.',
+];
+const MOOD_CHIP_LABELS: Record<string, string> = {
+  Calm: 'Calm 🙂',
+  Low: 'Low 🙁',
+  Anxious: 'Anxious 😬',
+  Overwhelmed: 'Overwhelmed 😵',
+  Numb: 'Numb 😶',
+  Hopeful: 'Hopeful 🙂',
+};
+const STYLE_CHIP_LABELS: Record<string, string> = {
+  Gentle: 'Gentle 🍃',
+  Direct: 'Direct 🎯',
+  Structured: 'Structured 🧭',
+  Reflective: 'Reflective 🌙',
+};
 
 const asTimeLabel = (value: string) => value.slice(0, 5);
 
@@ -140,6 +171,9 @@ export const OnboardingScreen: React.FC = () => {
     if (isTherapistFlow) return 'Welcome to your Care Space practice';
     return 'Talk to a qualified psychologist, without awkward admin';
   }, [isTherapistFlow]);
+
+  const currentStepLabel = isTherapistFlow ? THERAPIST_STEP_LABELS[step] : CLIENT_STEP_LABELS[step];
+  const currentStepHint = isTherapistFlow ? THERAPIST_STEP_HINTS[step] : CLIENT_STEP_HINTS[step];
 
   const toggleTag = (value: string, list: string[], setter: (value: string[]) => void, limit?: number) => {
     if (list.includes(value)) {
@@ -286,6 +320,8 @@ export const OnboardingScreen: React.FC = () => {
       case 0:
         return (
           <Card style={styles.heroCard}>
+            <View style={[styles.heroBlob, styles.heroBlobOne]} />
+            <View style={[styles.heroBlob, styles.heroBlobTwo]} />
             <Ionicons name="leaf-outline" size={28} color={Colors.accent.primary} />
             <Text style={styles.heroTitle}>{welcomeTitle}</Text>
             <Text style={styles.heroSubtitle}>Private. Structured. No long-term commitment needed.</Text>
@@ -294,7 +330,7 @@ export const OnboardingScreen: React.FC = () => {
         );
       case 1:
         return (
-          <View style={styles.stepContent}>
+          <Card style={styles.stepCard}>
             <Text style={styles.stepTitle}>What should we call you?</Text>
             <Text style={styles.stepSubtitle}>Just your first name is enough.</Text>
             <TextInput
@@ -306,11 +342,11 @@ export const OnboardingScreen: React.FC = () => {
               autoCapitalize="words"
               autoFocus
             />
-          </View>
+          </Card>
         );
       case 2:
         return (
-          <View style={styles.stepContent}>
+          <Card style={styles.stepCard}>
             <Text style={styles.stepTitle}>What brings you here today?</Text>
             <Text style={styles.stepSubtitle}>Pick up to 2. This helps us match without forcing labels.</Text>
             <View style={styles.wrapRow}>
@@ -323,192 +359,202 @@ export const OnboardingScreen: React.FC = () => {
                 />
               ))}
             </View>
-          </View>
+          </Card>
         );
       case 3:
         return (
           <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Preferences</Text>
+            <Card style={styles.stepCard}>
+              <Text style={styles.stepTitle}>Preferences</Text>
 
-            <Text style={styles.fieldLabel}>Language</Text>
-            <View style={styles.row}>
-              {LANGUAGE_OPTIONS.map((item) => (
-                <PillChip key={item} label={item} selected={language === item} onPress={() => setLanguage(item)} />
-              ))}
-            </View>
+              <Text style={styles.fieldLabel}>Language</Text>
+              <View style={styles.row}>
+                {LANGUAGE_OPTIONS.map((item) => (
+                  <PillChip key={item} label={item} selected={language === item} onPress={() => setLanguage(item)} />
+                ))}
+              </View>
 
-            <Text style={styles.fieldLabel}>Session mode</Text>
-            <View style={styles.row}>
-              {SESSION_PREF_OPTIONS.map((item) => (
-                <PillChip key={item} label={item} selected={sessionPref === item} onPress={() => setSessionPref(item)} />
-              ))}
-            </View>
+              <Text style={styles.fieldLabel}>Session mode</Text>
+              <View style={styles.row}>
+                {SESSION_PREF_OPTIONS.map((item) => (
+                  <PillChip key={item} label={item} selected={sessionPref === item} onPress={() => setSessionPref(item)} />
+                ))}
+              </View>
+            </Card>
 
-            <Text style={styles.fieldLabel}>Therapist gender preference (optional)</Text>
-            <View style={styles.wrapRow}>
-              {GENDER_PREF_OPTIONS.map((item) => (
-                <PillChip
-                  key={item.value}
-                  label={item.label}
-                  selected={genderPreference === item.value}
-                  onPress={() => setGenderPreference(item.value)}
-                />
-              ))}
-            </View>
+            <Card style={styles.stepCard}>
+              <Text style={styles.fieldLabel}>Therapist gender preference (optional)</Text>
+              <View style={styles.wrapRow}>
+                {GENDER_PREF_OPTIONS.map((item) => (
+                  <PillChip
+                    key={item.value}
+                    label={item.label}
+                    selected={genderPreference === item.value}
+                    onPress={() => setGenderPreference(item.value)}
+                  />
+                ))}
+              </View>
 
-            <Text style={styles.fieldLabel}>Preferred time</Text>
-            <View style={styles.wrapRow}>
-              {TIME_PREF_OPTIONS.map((item) => (
-                <PillChip
-                  key={item.value}
-                  label={item.label}
-                  selected={timePreference === item.value}
-                  onPress={() => setTimePreference(item.value)}
-                />
-              ))}
-            </View>
+              <Text style={styles.fieldLabel}>Preferred time</Text>
+              <View style={styles.wrapRow}>
+                {TIME_PREF_OPTIONS.map((item) => (
+                  <PillChip
+                    key={item.value}
+                    label={item.label}
+                    selected={timePreference === item.value}
+                    onPress={() => setTimePreference(item.value)}
+                  />
+                ))}
+              </View>
 
-            <Text style={styles.fieldLabel}>Care style</Text>
-            <View style={styles.wrapRow}>
-              {CARE_STYLE_OPTIONS.map((item) => (
-                <PillChip
-                  key={item}
-                  label={item}
-                  selected={careStylePreference === item}
-                  onPress={() => setCareStylePreference(item)}
-                />
-              ))}
-            </View>
+              <Text style={styles.fieldLabel}>Care style</Text>
+              <View style={styles.wrapRow}>
+                {CARE_STYLE_OPTIONS.map((item) => (
+                  <PillChip
+                    key={item}
+                    label={STYLE_CHIP_LABELS[item] || item}
+                    selected={careStylePreference === item}
+                    onPress={() => setCareStylePreference(item)}
+                  />
+                ))}
+              </View>
+            </Card>
           </View>
         );
       case 4:
         return (
           <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Quick check-in (light and optional)</Text>
-            <Text style={styles.stepSubtitle}>This helps your first session start with less repetition.</Text>
+            <Card style={styles.stepCard}>
+              <Text style={styles.stepTitle}>Quick check-in (light and optional)</Text>
+              <Text style={styles.stepSubtitle}>This helps your first session start with less repetition.</Text>
 
-            <Text style={styles.fieldLabel}>How are you feeling today?</Text>
-            <View style={styles.wrapRow}>
-              {REFLECTION_MOODS.map((item) => (
-                <PillChip
-                  key={item}
-                  label={item}
-                  selected={checkInMood === item}
-                  onPress={() => setCheckInMood(item)}
-                />
-              ))}
-            </View>
+              <Text style={styles.fieldLabel}>How are you feeling today?</Text>
+              <View style={styles.wrapRow}>
+                {REFLECTION_MOODS.map((item) => (
+                  <PillChip
+                    key={item}
+                    label={MOOD_CHIP_LABELS[item] || item}
+                    selected={checkInMood === item}
+                    onPress={() => setCheckInMood(item)}
+                  />
+                ))}
+              </View>
 
-            <Text style={styles.fieldLabel}>Stress today (1-5)</Text>
-            <View style={styles.row}>
-              {[1, 2, 3, 4, 5].map((item) => (
-                <PillChip
-                  key={item}
-                  label={`${item}`}
-                  selected={checkInStress === item}
-                  onPress={() => setCheckInStress(item)}
-                />
-              ))}
-            </View>
+              <Text style={styles.fieldLabel}>Stress today (1-5)</Text>
+              <View style={styles.row}>
+                {[1, 2, 3, 4, 5].map((item) => (
+                  <PillChip
+                    key={item}
+                    label={`${item}`}
+                    selected={checkInStress === item}
+                    onPress={() => setCheckInStress(item)}
+                  />
+                ))}
+              </View>
 
-            <Text style={styles.fieldLabel}>Hours of sleep</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. 7"
-              placeholderTextColor={Colors.text.tertiary}
-              keyboardType="numeric"
-              value={checkInSleep}
-              onChangeText={setCheckInSleep}
-            />
+              <Text style={styles.fieldLabel}>Hours of sleep</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. 7"
+                placeholderTextColor={Colors.text.tertiary}
+                keyboardType="numeric"
+                value={checkInSleep}
+                onChangeText={setCheckInSleep}
+              />
 
-            <Text style={styles.fieldLabel}>Anything to share before your first session? (optional)</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Optional note"
-              placeholderTextColor={Colors.text.tertiary}
-              multiline
-              value={checkInNote}
-              onChangeText={setCheckInNote}
-            />
+              <Text style={styles.fieldLabel}>Anything to share before your first session? (optional)</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Optional note"
+                placeholderTextColor={Colors.text.tertiary}
+                multiline
+                value={checkInNote}
+                onChangeText={setCheckInNote}
+              />
+            </Card>
 
-            <Text style={styles.fieldLabel}>Journaling</Text>
-            <CheckBox
-              checked={journalEnabled}
-              onPress={() => setJournalEnabled((prev) => !prev)}
-              label="Enable mood, stress, sleep, and note journaling"
-            />
+            <Card style={styles.stepCard}>
+              <Text style={styles.fieldLabel}>Journaling</Text>
+              <CheckBox
+                checked={journalEnabled}
+                onPress={() => setJournalEnabled((prev) => !prev)}
+                label="Enable mood, stress, sleep, and note journaling"
+              />
 
-            {journalEnabled && (
-              <>
-                <Text style={styles.fieldLabel}>Therapist visibility</Text>
-                <View style={styles.wrapRow}>
-                  {JOURNAL_SHARE_OPTIONS.map((item) => (
-                    <PillChip
-                      key={item.value}
-                      label={item.label}
-                      selected={journalSharing === item.value}
-                      onPress={() => setJournalSharing(item.value)}
-                    />
-                  ))}
-                </View>
-              </>
-            )}
+              {journalEnabled && (
+                <>
+                  <Text style={styles.fieldLabel}>Therapist visibility</Text>
+                  <View style={styles.wrapRow}>
+                    {JOURNAL_SHARE_OPTIONS.map((item) => (
+                      <PillChip
+                        key={item.value}
+                        label={item.label}
+                        selected={journalSharing === item.value}
+                        onPress={() => setJournalSharing(item.value)}
+                      />
+                    ))}
+                  </View>
+                </>
+              )}
+            </Card>
 
-            <Text style={styles.fieldLabel}>Reminders (non-pushy)</Text>
-            <CheckBox
-              checked={remindersEnabled}
-              onPress={() => setRemindersEnabled((prev) => !prev)}
-              label="Enable gentle mood check-in reminders"
-            />
+            <Card style={styles.stepCard}>
+              <Text style={styles.fieldLabel}>Reminders (non-pushy)</Text>
+              <CheckBox
+                checked={remindersEnabled}
+                onPress={() => setRemindersEnabled((prev) => !prev)}
+                label="Enable gentle mood check-in reminders"
+              />
 
-            {remindersEnabled && (
-              <>
-                <View style={styles.row}>
-                  {REMINDER_TIMES.map((item) => (
-                    <PillChip
-                      key={item}
-                      label={asTimeLabel(item)}
-                      selected={reminderTime === item}
-                      onPress={() => setReminderTime(item)}
-                    />
-                  ))}
-                </View>
-                <Text style={styles.fieldLabel}>Quiet hours start</Text>
-                <View style={styles.row}>
-                  {QUIET_START_OPTIONS.map((item) => (
-                    <PillChip
-                      key={item}
-                      label={asTimeLabel(item)}
-                      selected={quietStart === item}
-                      onPress={() => setQuietStart(item)}
-                    />
-                  ))}
-                </View>
-                <Text style={styles.fieldLabel}>Quiet hours end</Text>
-                <View style={styles.row}>
-                  {QUIET_END_OPTIONS.map((item) => (
-                    <PillChip
-                      key={item}
-                      label={asTimeLabel(item)}
-                      selected={quietEnd === item}
-                      onPress={() => setQuietEnd(item)}
-                    />
-                  ))}
-                </View>
-              </>
-            )}
+              {remindersEnabled && (
+                <>
+                  <View style={styles.row}>
+                    {REMINDER_TIMES.map((item) => (
+                      <PillChip
+                        key={item}
+                        label={asTimeLabel(item)}
+                        selected={reminderTime === item}
+                        onPress={() => setReminderTime(item)}
+                      />
+                    ))}
+                  </View>
+                  <Text style={styles.fieldLabel}>Quiet hours start</Text>
+                  <View style={styles.row}>
+                    {QUIET_START_OPTIONS.map((item) => (
+                      <PillChip
+                        key={item}
+                        label={asTimeLabel(item)}
+                        selected={quietStart === item}
+                        onPress={() => setQuietStart(item)}
+                      />
+                    ))}
+                  </View>
+                  <Text style={styles.fieldLabel}>Quiet hours end</Text>
+                  <View style={styles.row}>
+                    {QUIET_END_OPTIONS.map((item) => (
+                      <PillChip
+                        key={item}
+                        label={asTimeLabel(item)}
+                        selected={quietEnd === item}
+                        onPress={() => setQuietEnd(item)}
+                      />
+                    ))}
+                  </View>
+                </>
+              )}
+            </Card>
           </View>
         );
       case 5:
         return (
-          <View style={styles.stepContent}>
+          <Card style={styles.stepCard}>
             <Text style={styles.stepTitle}>Safety and consent</Text>
-            <Card style={styles.infoCard}>
+            <View style={styles.infoCard}>
               <Ionicons name="information-circle-outline" size={18} color={Colors.accent.primary} />
               <Text style={styles.infoText}>
                 Care Space is for psychological support and is not a substitute for emergency response.
               </Text>
-            </Card>
+            </View>
 
             <CheckBox
               checked={agreedNotEmergency}
@@ -520,7 +566,7 @@ export const OnboardingScreen: React.FC = () => {
               onPress={() => setAgreedTerms((prev) => !prev)}
               label="I agree to the terms of service"
             />
-          </View>
+          </Card>
         );
       default:
         return null;
@@ -532,6 +578,8 @@ export const OnboardingScreen: React.FC = () => {
       case 0:
         return (
           <Card style={styles.heroCard}>
+            <View style={[styles.heroBlob, styles.heroBlobOne]} />
+            <View style={[styles.heroBlob, styles.heroBlobTwo]} />
             <Ionicons name="sparkles-outline" size={28} color={Colors.accent.primary} />
             <Text style={styles.heroTitle}>{welcomeTitle}</Text>
             <Text style={styles.heroSubtitle}>
@@ -541,7 +589,7 @@ export const OnboardingScreen: React.FC = () => {
         );
       case 1:
         return (
-          <View style={styles.stepContent}>
+          <Card style={styles.stepCard}>
             <Text style={styles.stepTitle}>Profile intro</Text>
             <TextInput
               style={styles.input}
@@ -558,11 +606,11 @@ export const OnboardingScreen: React.FC = () => {
               value={headline}
               onChangeText={setHeadline}
             />
-          </View>
+          </Card>
         );
       case 2:
         return (
-          <View style={styles.stepContent}>
+          <Card style={styles.stepCard}>
             <Text style={styles.stepTitle}>Expertise and languages</Text>
             <Text style={styles.fieldLabel}>Specialties</Text>
             <View style={styles.wrapRow}>
@@ -587,11 +635,11 @@ export const OnboardingScreen: React.FC = () => {
                 />
               ))}
             </View>
-          </View>
+          </Card>
         );
       case 3:
         return (
-          <View style={styles.stepContent}>
+          <Card style={styles.stepCard}>
             <Text style={styles.stepTitle}>Practice preferences</Text>
             <Text style={styles.fieldLabel}>Session mode</Text>
             <View style={styles.row}>
@@ -611,11 +659,11 @@ export const OnboardingScreen: React.FC = () => {
                 />
               ))}
             </View>
-          </View>
+          </Card>
         );
       case 4:
         return (
-          <View style={styles.stepContent}>
+          <Card style={styles.stepCard}>
             <Text style={styles.stepTitle}>Compliance checks</Text>
             <CheckBox
               checked={agreedConfidentiality}
@@ -627,7 +675,7 @@ export const OnboardingScreen: React.FC = () => {
               onPress={() => setAgreedBoundaries((prev) => !prev)}
               label="I acknowledge crisis escalation and professional boundaries"
             />
-          </View>
+          </Card>
         );
       default:
         return null;
@@ -636,6 +684,19 @@ export const OnboardingScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <View style={styles.stepHeaderCard}>
+        <View style={styles.stepHeaderTopRow}>
+          <View style={styles.stepCountPill}>
+            <Text style={styles.stepCountText}>Step {step + 1} of {totalSteps}</Text>
+          </View>
+          <View style={styles.stepFlowPill}>
+            <Text style={styles.stepFlowText}>{isTherapistFlow ? 'Therapist Setup' : 'Client Setup'}</Text>
+          </View>
+        </View>
+        <Text style={styles.stepHeaderTitle}>{currentStepLabel}</Text>
+        <Text style={styles.stepHeaderSubtitle}>{currentStepHint}</Text>
+      </View>
+
       <View style={styles.progressContainer}>
         {Array.from({ length: totalSteps }).map((_, index) => (
           <View
@@ -693,7 +754,12 @@ const checkStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    paddingVertical: Spacing.xs,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.bg.secondary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
   },
   box: {
     width: 22,
@@ -720,11 +786,58 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.bg.primary,
   },
+  stepHeaderCard: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.bg.secondary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    gap: 2,
+  },
+  stepHeaderTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  stepCountPill: {
+    backgroundColor: Colors.accent.soft,
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+  },
+  stepCountText: {
+    ...Typography.micro,
+    color: Colors.accent.dark,
+  },
+  stepFlowPill: {
+    backgroundColor: Colors.bg.primary,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+  },
+  stepFlowText: {
+    ...Typography.micro,
+    color: Colors.text.secondary,
+  },
+  stepHeaderTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+  },
+  stepHeaderSubtitle: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
   progressContainer: {
     flexDirection: 'row',
     gap: Spacing.xs,
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.md,
+    paddingTop: Spacing.sm,
     paddingBottom: Spacing.sm,
   },
   progressDot: {
@@ -740,14 +853,32 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.xl,
+    paddingBottom: Spacing.xxl,
   },
   heroCard: {
-    marginTop: Spacing.md,
+    marginTop: Spacing.sm,
     backgroundColor: Colors.accent.soft,
     borderColor: Colors.accent.soft,
     alignItems: 'flex-start',
+    overflow: 'hidden',
     gap: Spacing.xs,
+  },
+  heroBlob: {
+    position: 'absolute',
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.28)',
+  },
+  heroBlobOne: {
+    width: 110,
+    height: 110,
+    top: -36,
+    right: -24,
+  },
+  heroBlobTwo: {
+    width: 74,
+    height: 74,
+    bottom: -30,
+    left: -12,
   },
   heroTitle: {
     ...Typography.title2,
@@ -764,8 +895,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   stepContent: {
-    marginTop: Spacing.md,
+    marginTop: Spacing.sm,
     gap: Spacing.sm,
+  },
+  stepCard: {
+    gap: Spacing.xs,
   },
   stepTitle: {
     ...Typography.title2,
