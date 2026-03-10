@@ -1,15 +1,74 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../../core/theme';
 import { Card } from '../../../core/components';
+import { useAuth } from '../../../core/context/AuthContext';
+import { supabase } from '../../../services/supabase';
+import { useFocusEffect } from '@react-navigation/native';
+import { DailyCheckInModal } from './DailyCheckInModal';
 
 export const MentalHealthDashboard: React.FC = () => {
-  const [freudScore, setFreudScore] = useState(80);
-  const [mood, setMood] = useState('Sad');
+  const { user } = useAuth();
+  const [freudScore, setFreudScore] = useState<number | null>(null);
+  const [mood, setMood] = useState<string | null>(null);
+  const [sleep, setSleep] = useState<number>(0);
+  const [stress, setStress] = useState<number>(0);
+  const [hasJournaled, setHasJournaled] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+
+  const fetchTodayMetrics = useCallback(async () => {
+    if (!user) return;
+    
+    // Get start of today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const { data } = await supabase
+      .from('client_metrics')
+      .select('*')
+      .eq('user_id', user.id)
+      .gte('created_at', today.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (data && data.length > 0) {
+      const metric = data[0];
+      setFreudScore(metric.freud_score_snapshot);
+      setMood(metric.mood);
+      setSleep(metric.sleep_hours);
+      setStress(metric.stress_level);
+      setHasJournaled(!!metric.journal_entry);
+    } else {
+      setFreudScore(null);
+      setMood(null);
+    }
+  }, [user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchTodayMetrics();
+    }, [fetchTodayMetrics])
+  );
+
+  const getMoodEmoji = (m: string | null) => {
+    switch(m) {
+      case 'Happy': return '😊';
+      case 'Neutral': return '😐';
+      case 'Sad': return '😞';
+      case 'Anxious': return '😬';
+      case 'Angry': return '😠';
+      default: return '☁️';
+    }
+  };
 
   return (
     <View style={styles.container}>
+      <DailyCheckInModal 
+        visible={showModal} 
+        onClose={() => setShowModal(false)}
+        onSuccess={() => fetchTodayMetrics()}
+      />
       {/* Mental Health Metrics Header */}
       <View style={styles.header}>
         <Text style={styles.sectionTitle}>Mental Health Metrics</Text>
@@ -25,24 +84,36 @@ export const MentalHealthDashboard: React.FC = () => {
           </View>
           <View style={styles.scoreContainer}>
             <View style={styles.scoreCircle}>
-              <Text style={styles.scoreNumber}>{freudScore}</Text>
+              <Text style={styles.scoreNumber}>{freudScore !== null ? freudScore : '-'}</Text>
             </View>
           </View>
-          <Text style={styles.scoreLabel}>Healthy</Text>
+          <Text style={styles.scoreLabel}>{freudScore !== null ? 'Logged' : 'Pending'}</Text>
         </TouchableOpacity>
 
         {/* Mood Widget */}
-        <TouchableOpacity style={[styles.metricCard, styles.moodCard]} activeOpacity={0.8}>
+        <TouchableOpacity style={[styles.metricCard, styles.moodCard]} activeOpacity={0.8} onPress={() => setShowModal(true)}>
           <View style={styles.metricCardHeader}>
             <Ionicons name="happy-outline" size={16} color={Colors.text.inverse} />
             <Text style={styles.metricCardTitle}>Mood</Text>
           </View>
           <View style={styles.moodIconContainer}>
-            <Text style={styles.moodEmoji}>😞</Text>
+            <Text style={styles.moodEmoji}>{getMoodEmoji(mood)}</Text>
           </View>
-          <Text style={styles.scoreLabel}>Sad</Text>
+          <Text style={styles.scoreLabel}>{mood || 'Log now'}</Text>
         </TouchableOpacity>
       </View>
+
+      {!freudScore && (
+        <TouchableOpacity style={styles.logPromptCard} onPress={() => setShowModal(true)}>
+          <View style={styles.logPromptIcon}>
+            <Ionicons name="add-circle" size={24} color={Colors.accent.primary} />
+          </View>
+          <View style={styles.logPromptTextContainer}>
+            <Text style={styles.logPromptTitle}>Daily Check-in</Text>
+            <Text style={styles.logPromptDesc}>Log your mood and mental state for today.</Text>
+          </View>
+        </TouchableOpacity>
+      )}
 
       {/* Mindful Tracker List */}
       <View style={styles.header}>
@@ -56,27 +127,18 @@ export const MentalHealthDashboard: React.FC = () => {
           icon="time-outline" 
           iconColor={Colors.status.success} 
           iconBg={Colors.status.successSoft} 
-          title="Mindful Hours" 
-          subtitle="2.5Hr Today"
-          rightElement={<Ionicons name="pulse" size={24} color={Colors.status.success} />}
-        />
-        
-        <TrackerRow 
-          icon="moon-outline" 
-          iconColor="#8B7AEB" 
-          iconBg="#EFEAFE" 
           title="Sleep Quality" 
-          subtitle="Inconsistent · 5-10h Avg"
-          rightElement={<Text style={styles.trackerScoreText}>90</Text>}
+          subtitle="Hours of sleep"
+          rightElement={<Text style={styles.trackerScoreText}>{sleep > 0 ? `${sleep}h` : '--'}</Text>}
         />
 
         <TrackerRow 
           icon="journal-outline" 
           iconColor={Colors.status.warning} 
           iconBg={Colors.status.warningSoft} 
-          title="Mindful Journal" 
-          subtitle="64 Day Streak"
-          rightElement={<Ionicons name="flame" size={20} color={Colors.status.warning} />}
+          title="Daily Journal" 
+          subtitle="Thoughts and reflections"
+          rightElement={<Ionicons name={hasJournaled ? "checkmark-circle" : "ellipse-outline"} size={20} color={hasJournaled ? Colors.status.success : Colors.stroke.medium} />}
         />
 
         <TrackerRow 
@@ -84,39 +146,11 @@ export const MentalHealthDashboard: React.FC = () => {
           iconColor="#EBCB6B" 
           iconBg="#FDF8E7" 
           title="Stress Level" 
-          subtitle="Level 3 (Normal)"
-        />
-
-        <TrackerRow 
-          icon="radio-button-on-outline" 
-          iconColor={Colors.status.danger} 
-          iconBg={Colors.status.dangerSoft} 
-          title="Mood Tracker" 
-          subtitle="Sad → Happy → Neutral"
+          subtitle={`Level ${stress > 0 ? stress : '-'}`}
           noBorder
         />
         
       </Card>
-
-      {/* AI Therapy Chatbot Card (Matches visual style) */}
-      <TouchableOpacity activeOpacity={0.8} style={styles.aiCard}>
-        <View style={styles.aiLeft}>
-          <Text style={styles.aiTitle}>AI Therapy Chatbot</Text>
-          <Text style={styles.aiCount}>2,541</Text>
-          <Text style={styles.aiSubtitle}>Conversations</Text>
-          <View style={styles.aiBadge}>
-            <Ionicons name="star" size={10} color={Colors.text.inverse} />
-            <Text style={styles.aiBadgeText}>10 left this month</Text>
-          </View>
-        </View>
-        <View style={styles.aiRight}>
-          <Ionicons name="chatbubbles" size={60} color={Colors.text.brownLight} style={{ opacity: 0.2, position: 'absolute', right: -10, bottom: -10 }} />
-          <View style={styles.aiRobotHead}>
-            <View style={styles.aiRobotEye} />
-            <View style={styles.aiRobotLine} />
-          </View>
-        </View>
-      </TouchableOpacity>
 
     </View>
   );
@@ -263,74 +297,29 @@ const styles = StyleSheet.create({
     ...Typography.bodySemibold,
     color: '#8B7AEB',
   },
-
-  // AI Chatbot Banner
-  aiCard: {
-    backgroundColor: Colors.bg.brownDark,
-    borderRadius: Radius.xl,
-    padding: Spacing.xl,
+  
+  logPromptCard: {
     flexDirection: 'row',
-    marginTop: Spacing.md,
-    marginBottom: Spacing.lg,
-    overflow: 'hidden',
+    alignItems: 'center',
+    backgroundColor: Colors.accent.soft,
+    padding: Spacing.md,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.accent.primary + '30',
+    marginTop: Spacing.xs,
   },
-  aiLeft: {
+  logPromptIcon: {
+    marginRight: Spacing.sm,
+  },
+  logPromptTextContainer: {
     flex: 1,
-    gap: 4,
   },
-  aiTitle: {
-    ...Typography.captionEmphasis,
-    color: Colors.text.brownLight,
+  logPromptTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.accent.dark,
   },
-  aiCount: {
-    ...Typography.title1,
-    color: Colors.text.inverse,
-    fontSize: 28,
-  },
-  aiSubtitle: {
-    ...Typography.body,
-    color: Colors.text.brownLight,
-  },
-  aiBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: Radius.pill,
-    marginTop: Spacing.sm,
-  },
-  aiBadgeText: {
+  logPromptDesc: {
     ...Typography.caption,
-    fontSize: 10,
-    color: Colors.text.inverse,
-  },
-  aiRight: {
-    width: 80,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  aiRobotHead: {
-    width: 50,
-    height: 40,
-    backgroundColor: Colors.text.brownLight,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  aiRobotEye: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: Colors.bg.brownDark,
-  },
-  aiRobotLine: {
-    width: 24,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.bg.brownDark,
+    color: Colors.text.secondary,
   },
 });
