@@ -22,8 +22,9 @@ import { MentalHealthDashboard } from './components/MentalHealthDashboard';
 const FILTER_OPTIONS = ['All', 'Anxiety', 'Relationships', 'Loneliness', 'Work Stress', 'Self-Esteem', 'Grief'];
 
 export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { profile, isTherapistMode } = useAuth();
+  const { profile, isTherapistMode, user } = useAuth();
   const [therapists, setTherapists] = useState<Therapist[]>([]);
+  const [nextSession, setNextSession] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState('All');
@@ -67,8 +68,63 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     fetchTherapists();
   }, [fetchTherapists]);
 
+  const fetchNextSession = useCallback(async () => {
+    if (!user || isTherapistMode) return;
+
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(`
+        id, therapist_id, status, scheduled_start_at, scheduled_end_at, session_type,
+        therapists:therapist_id (
+          headline,
+          profiles (display_name, avatar_url)
+        ),
+        sessions (id, status, video_call_id)
+      `)
+      .eq('user_id', user.id)
+      .eq('status', 'confirmed')
+      .gte('scheduled_start_at', new Date().toISOString())
+      .order('scheduled_start_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      setNextSession(null);
+      return;
+    }
+
+    if (!data) {
+      setNextSession(null);
+      return;
+    }
+
+    const therapist = Array.isArray((data as any).therapists) ? (data as any).therapists[0] : (data as any).therapists;
+    const therapistProfile = Array.isArray(therapist?.profiles) ? therapist?.profiles[0] : therapist?.profiles;
+    const session = Array.isArray((data as any).sessions) ? (data as any).sessions[0] : (data as any).sessions;
+
+    setNextSession({
+      booking_id: data.id,
+      participant_id: data.therapist_id,
+      participant_name: therapistProfile?.display_name || 'Therapist',
+      participant_avatar: therapistProfile?.avatar_url || null,
+      participant_subtitle: therapist?.headline || 'Therapist',
+      scheduled_start_at: data.scheduled_start_at,
+      scheduled_end_at: data.scheduled_end_at,
+      booking_status: data.status,
+      session_type: data.session_type,
+      id: session?.id || null,
+      status: session?.status || 'scheduled',
+      video_call_id: session?.video_call_id || null,
+    });
+  }, [isTherapistMode, user]);
+
+  useEffect(() => {
+    fetchNextSession();
+  }, [fetchNextSession]);
+
   const onRefresh = () => {
     setRefreshing(true);
+    fetchNextSession();
     fetchTherapists();
   };
 
@@ -140,8 +196,12 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           <Text style={styles.greeting}>{getGreeting()},</Text>
           <Text style={styles.userName}>{profile?.first_name || 'there'} 👋</Text>
         </View>
-        <TouchableOpacity style={styles.notifBtn}>
-          <Ionicons name="notifications-outline" size={22} color={Colors.text.primary} />
+        <TouchableOpacity style={styles.notifBtn} onPress={() => navigation.navigate('HomeNotifications')}>
+          <Ionicons
+            name="notifications-outline"
+            size={22}
+            color={Colors.text.primary}
+          />
         </TouchableOpacity>
       </View>
 
@@ -159,6 +219,39 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             }
           >
             <MentalHealthDashboard />
+            {nextSession && (
+              <Card style={styles.nextSessionCard}>
+                <View style={styles.nextSessionHeader}>
+                  <View style={styles.nextSessionIcon}>
+                    <Ionicons name="calendar-outline" size={18} color={Colors.accent.primary} />
+                  </View>
+                  <View style={styles.nextSessionText}>
+                    <Text style={styles.nextSessionTitle}>Upcoming session</Text>
+                    <Text style={styles.nextSessionMeta}>
+                      {nextSession.participant_name}
+                      {' · '}
+                      {new Date(nextSession.scheduled_start_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                      {' · '}
+                      {new Date(nextSession.scheduled_start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.nextSessionActions}>
+                  <TouchableOpacity
+                    style={[styles.actionBtnOutline, styles.nextSessionActionBtn]}
+                    onPress={() => navigation.navigate('SessionPrep', { session: nextSession })}
+                  >
+                    <Text style={styles.actionBtnTextOutline}>Session prep</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.actionBtnPrimary, styles.nextSessionActionBtn]}
+                    onPress={() => navigation.navigate('VideoCall', { session: nextSession })}
+                  >
+                    <Text style={styles.actionBtnText}>Join</Text>
+                  </TouchableOpacity>
+                </View>
+              </Card>
+            )}
             <View style={styles.carePlanContainer}>
               <Text style={styles.sectionTitle}>Your Care Plan</Text>
               <Card style={styles.actionCard}>
@@ -185,7 +278,10 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                   <Text style={styles.actionTitle}>Daily Journal</Text>
                   <Text style={styles.actionDesc}>Take 5 minutes to reflect on your goals for this week.</Text>
                 </View>
-                <TouchableOpacity style={styles.actionBtnOutline}>
+                <TouchableOpacity
+                  style={styles.actionBtnOutline}
+                  onPress={() => navigation.navigate('Journal')}
+                >
                   <Text style={styles.actionBtnTextOutline}>Start</Text>
                 </TouchableOpacity>
               </Card>
@@ -368,6 +464,44 @@ const styles = StyleSheet.create({
   viewProfileText: {
     ...Typography.captionEmphasis,
     color: Colors.accent.primary,
+  },
+  nextSessionCard: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.md,
+    gap: Spacing.sm,
+  },
+  nextSessionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  nextSessionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: Colors.accent.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nextSessionText: {
+    flex: 1,
+  },
+  nextSessionTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+  },
+  nextSessionMeta: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginTop: 2,
+  },
+  nextSessionActions: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  nextSessionActionBtn: {
+    flex: 1,
+    alignItems: 'center',
   },
   carePlanContainer: {
     paddingHorizontal: Spacing.xl,

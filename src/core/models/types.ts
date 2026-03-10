@@ -16,6 +16,15 @@ export interface UserPreferences {
   user_id: string;
   intent_tags: string[];
   session_preference: 'chat' | 'video' | 'both';
+  wellbeing_reminders_enabled: boolean;
+  wellbeing_reminder_time: string;
+  quiet_hours_start: string;
+  quiet_hours_end: string;
+  therapist_gender_preference?: 'no_preference' | 'female' | 'male' | 'non_binary';
+  time_preference?: 'morning' | 'afternoon' | 'evening' | 'flexible';
+  care_style_preference?: string | null;
+  journal_enabled?: boolean;
+  journal_sharing?: 'none' | 'summary' | 'entry_by_entry' | 'all';
   created_at: string;
   updated_at: string;
 }
@@ -110,6 +119,30 @@ export interface Session {
   updated_at: string;
   // Joined from booking
   booking?: Booking;
+}
+
+export interface ClientMetric {
+  id: string;
+  user_id: string;
+  mood: string;
+  stress_level: number;
+  sleep_hours: number;
+  journal_entry: string | null;
+  care_score_snapshot: number;
+  created_at: string;
+}
+
+export type RiskLevel = 'high' | 'medium' | 'stable';
+
+export interface CareNudgeEvent {
+  id: string;
+  user_id: string;
+  therapist_id: string | null;
+  trigger_type: string;
+  risk_level: RiskLevel;
+  source: 'system_auto' | 'therapist_manual';
+  message_preview: string | null;
+  created_at: string;
 }
 
 export interface Payment {

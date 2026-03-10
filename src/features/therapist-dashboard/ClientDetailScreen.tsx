@@ -6,11 +6,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
+import { BackendSetupCard } from '../../core/components';
+import { useClientMetricsReadiness } from '../../core/hooks/useClientMetricsReadiness';
 
 export const ClientDetailScreen: React.FC = () => {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
   const { clientId, clientName } = route.params || {};
+  const { ready, requiresSetup, issue, refresh } = useClientMetricsReadiness();
 
   const [metrics, setMetrics] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,6 +24,10 @@ export const ClientDetailScreen: React.FC = () => {
       
       const fetchMetrics = async () => {
         setLoading(true);
+        if (!ready) {
+          setLoading(false);
+          return;
+        }
         const { data, error } = await supabase
           .from('client_metrics')
           .select('*')
@@ -34,7 +41,7 @@ export const ClientDetailScreen: React.FC = () => {
       };
 
       fetchMetrics();
-    }, [clientId])
+    }, [clientId, ready])
   );
 
   const formatDate = (isoStr: string) => {
@@ -55,10 +62,18 @@ export const ClientDetailScreen: React.FC = () => {
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <Text style={styles.sectionTitle}>Metric Logs Timeline</Text>
+
+        {requiresSetup && (
+          <BackendSetupCard
+            title="CareScore Setup Required"
+            message={issue || undefined}
+            onRetry={refresh}
+          />
+        )}
         
-        {loading ? (
+        {loading && ready ? (
           <ActivityIndicator size="large" color={Colors.accent.primary} style={{ marginTop: Spacing.xl }} />
-        ) : metrics.length === 0 ? (
+        ) : !ready ? null : metrics.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="document-text-outline" size={48} color={Colors.text.tertiary} />
             <Text style={styles.emptyText}>{clientName} hasn't logged any metrics yet.</Text>
@@ -69,7 +84,7 @@ export const ClientDetailScreen: React.FC = () => {
               <View style={styles.logHeader}>
                 <Text style={styles.logDate}>{formatDate(log.created_at)}</Text>
                 <View style={styles.scoreBadge}>
-                  <Text style={styles.scoreText}>Score: {log.freud_score_snapshot}</Text>
+                  <Text style={styles.scoreText}>CareScore: {log.care_score_snapshot}</Text>
                 </View>
               </View>
 
