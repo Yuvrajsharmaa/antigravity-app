@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS public.client_metrics (
   stress_level INT NOT NULL,
   sleep_hours NUMERIC NOT NULL,
   journal_entry TEXT,
-  freud_score_snapshot INT NOT NULL,
+  care_score_snapshot INT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

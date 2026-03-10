@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -37,13 +37,20 @@ const getFirst = <T,>(value: T | T[] | null | undefined): T | undefined => {
   return Array.isArray(value) ? value[0] : value;
 };
 
-export const SessionsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navigation, route }) => {
   const { user, isTherapistMode, isDevAdmin } = useAuth();
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const desiredTab = route?.params?.initialTab;
+    if (desiredTab === 'upcoming' || desiredTab === 'past') {
+      setTab(desiredTab);
+    }
+  }, [route?.params?.initialTab]);
 
   const fetchSessions = useCallback(async () => {
     if (!user) return;

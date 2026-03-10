@@ -5,8 +5,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
 import { Avatar, Card } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
+import { useNavigation } from '@react-navigation/native';
 
 export const ProfileScreen: React.FC = () => {
+  const navigation = useNavigation<any>();
   const { profile, signOut, isTherapistMode, toggleTherapistMode } = useAuth();
 
   const handleSignOut = () => {
@@ -17,16 +19,16 @@ export const ProfileScreen: React.FC = () => {
   };
 
   const settingsItems = [
-    { icon: 'person-outline', label: 'Edit profile', onPress: () => {} },
-    { icon: 'notifications-outline', label: 'Notifications', onPress: () => {} },
-    { icon: 'shield-checkmark-outline', label: 'Privacy & safety', onPress: () => {} },
-    { icon: 'help-circle-outline', label: 'Help & support', onPress: () => {} },
+    { icon: 'person-outline', label: 'Edit profile', onPress: () => navigation.navigate('EditProfile') },
+    { icon: 'notifications-outline', label: 'Notifications', onPress: () => navigation.navigate('Notifications') },
+    { icon: 'shield-checkmark-outline', label: 'Privacy & safety', onPress: () => navigation.navigate('ProfileInfo', { topic: 'privacy_safety' }) },
+    { icon: 'help-circle-outline', label: 'Help & support', onPress: () => navigation.navigate('ProfileInfo', { topic: 'help_support' }) },
   ];
 
   const legalItems = [
-    { icon: 'document-text-outline', label: 'Terms of service', onPress: () => {} },
-    { icon: 'lock-closed-outline', label: 'Privacy policy', onPress: () => {} },
-    { icon: 'information-circle-outline', label: 'About Care Space', onPress: () => {} },
+    { icon: 'document-text-outline', label: 'Terms of service', onPress: () => navigation.navigate('ProfileInfo', { topic: 'terms' }) },
+    { icon: 'lock-closed-outline', label: 'Privacy policy', onPress: () => navigation.navigate('ProfileInfo', { topic: 'privacy_policy' }) },
+    { icon: 'information-circle-outline', label: 'About Care Space', onPress: () => navigation.navigate('ProfileInfo', { topic: 'about' }) },
   ];
 
   return (
@@ -90,7 +92,7 @@ export const ProfileScreen: React.FC = () => {
         <Text style={styles.signOutText}>Sign out</Text>
       </TouchableOpacity>
 
-      <Text style={styles.version}>Care Space v1.0.0 (prototype)</Text>
+      <Text style={styles.version}>Care Space v1.1.0</Text>
     </SafeAreaView>
   );
 };
