@@ -140,8 +140,12 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           <Text style={styles.greeting}>{getGreeting()},</Text>
           <Text style={styles.userName}>{profile?.first_name || 'there'} 👋</Text>
         </View>
-        <TouchableOpacity style={styles.notifBtn}>
-          <Ionicons name="notifications-outline" size={22} color={Colors.text.primary} />
+        <TouchableOpacity style={styles.notifBtn} onPress={() => navigation.navigate('HomeNotifications')}>
+          <Ionicons
+            name="notifications-outline"
+            size={22}
+            color={Colors.text.primary}
+          />
         </TouchableOpacity>
       </View>
 
@@ -185,7 +189,10 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                   <Text style={styles.actionTitle}>Daily Journal</Text>
                   <Text style={styles.actionDesc}>Take 5 minutes to reflect on your goals for this week.</Text>
                 </View>
-                <TouchableOpacity style={styles.actionBtnOutline}>
+                <TouchableOpacity
+                  style={styles.actionBtnOutline}
+                  onPress={() => navigation.navigate('Journal')}
+                >
                   <Text style={styles.actionBtnTextOutline}>Start</Text>
                 </TouchableOpacity>
               </Card>

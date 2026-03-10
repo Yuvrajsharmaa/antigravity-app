@@ -1,30 +1,33 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../../core/theme';
-import { Card } from '../../../core/components';
+import { Card, BackendSetupCard } from '../../../core/components';
 import { useAuth } from '../../../core/context/AuthContext';
 import { supabase } from '../../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { DailyCheckInModal } from './DailyCheckInModal';
+import { useClientMetricsReadiness } from '../../../core/hooks/useClientMetricsReadiness';
 
 export const MentalHealthDashboard: React.FC = () => {
   const { user } = useAuth();
-  const [freudScore, setFreudScore] = useState<number | null>(null);
+  const { ready, checking, requiresSetup, issue, refresh } = useClientMetricsReadiness();
+
+  const [careScore, setCareScore] = useState<number | null>(null);
   const [mood, setMood] = useState<string | null>(null);
   const [sleep, setSleep] = useState<number>(0);
   const [stress, setStress] = useState<number>(0);
   const [hasJournaled, setHasJournaled] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchTodayMetrics = useCallback(async () => {
-    if (!user) return;
-    
-    // Get start of today
+    if (!user || !ready) return;
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('client_metrics')
       .select('*')
       .eq('user_id', user.id)
@@ -32,78 +35,134 @@ export const MentalHealthDashboard: React.FC = () => {
       .order('created_at', { ascending: false })
       .limit(1);
 
+    if (error) {
+      setLoadError(error.message || 'Could not load today\'s check-in.');
+      return;
+    }
+
+    setLoadError(null);
+
     if (data && data.length > 0) {
       const metric = data[0];
-      setFreudScore(metric.freud_score_snapshot);
+      setCareScore(metric.care_score_snapshot);
       setMood(metric.mood);
       setSleep(metric.sleep_hours);
       setStress(metric.stress_level);
       setHasJournaled(!!metric.journal_entry);
-    } else {
-      setFreudScore(null);
-      setMood(null);
+      return;
     }
-  }, [user]);
+
+    setCareScore(null);
+    setMood(null);
+    setSleep(0);
+    setStress(0);
+    setHasJournaled(false);
+  }, [ready, user]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchTodayMetrics();
-    }, [fetchTodayMetrics])
+      refresh();
+    }, [refresh])
   );
 
-  const getMoodEmoji = (m: string | null) => {
-    switch(m) {
-      case 'Happy': return '😊';
-      case 'Neutral': return '😐';
-      case 'Sad': return '😞';
-      case 'Anxious': return '😬';
-      case 'Angry': return '😠';
-      default: return '☁️';
+  useEffect(() => {
+    if (ready) {
+      fetchTodayMetrics();
+    }
+  }, [fetchTodayMetrics, ready]);
+
+  const getMoodEmoji = (currentMood: string | null) => {
+    switch (currentMood) {
+      case 'Happy':
+        return '😊';
+      case 'Neutral':
+        return '😐';
+      case 'Sad':
+        return '😞';
+      case 'Anxious':
+        return '😬';
+      case 'Angry':
+        return '😠';
+      default:
+        return '☁️';
     }
   };
 
+  if (requiresSetup) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.sectionTitle}>Mental Health Metrics</Text>
+          <Ionicons name="ellipsis-horizontal" size={20} color={Colors.text.secondary} />
+        </View>
+        <BackendSetupCard
+          title="Mood Tracking Setup Required"
+          message={issue || undefined}
+          onRetry={refresh}
+        />
+      </View>
+    );
+  }
+
+  const dashboardIssue = loadError || (!ready && !checking ? issue : null);
+
   return (
     <View style={styles.container}>
-      <DailyCheckInModal 
-        visible={showModal} 
+      <DailyCheckInModal
+        visible={showModal}
         onClose={() => setShowModal(false)}
         onSuccess={() => fetchTodayMetrics()}
+        backendReady={ready}
+        setupIssue={requiresSetup ? issue : null}
+        onRetrySetup={refresh}
       />
-      {/* Mental Health Metrics Header */}
+
       <View style={styles.header}>
         <Text style={styles.sectionTitle}>Mental Health Metrics</Text>
         <Ionicons name="ellipsis-horizontal" size={20} color={Colors.text.secondary} />
       </View>
 
-      <View style={styles.metricsRow}>
-        {/* Freud Score Widget */}
-        <TouchableOpacity style={[styles.metricCard, styles.freudCard]} activeOpacity={0.8}>
-          <View style={styles.metricCardHeader}>
-            <Ionicons name="heart-half-outline" size={16} color={Colors.text.inverse} />
-            <Text style={styles.metricCardTitle}>Freud Score</Text>
-          </View>
-          <View style={styles.scoreContainer}>
-            <View style={styles.scoreCircle}>
-              <Text style={styles.scoreNumber}>{freudScore !== null ? freudScore : '-'}</Text>
+      {dashboardIssue ? (
+        <Card style={styles.issueCard}>
+          <Text style={styles.issueTitle}>We couldn&apos;t load today&apos;s metrics</Text>
+          <Text style={styles.issueText}>{dashboardIssue}</Text>
+          <TouchableOpacity style={styles.issueRetry} onPress={fetchTodayMetrics}>
+            <Text style={styles.issueRetryText}>Retry</Text>
+          </TouchableOpacity>
+        </Card>
+      ) : (
+        <View style={styles.metricsRow}>
+          <TouchableOpacity style={[styles.metricCard, styles.careCard]} activeOpacity={0.8}>
+            <View style={styles.metricCardHeader}>
+              <Ionicons name="heart-half-outline" size={16} color={Colors.text.inverse} />
+              <Text style={styles.metricCardTitle}>CareScore</Text>
             </View>
-          </View>
-          <Text style={styles.scoreLabel}>{freudScore !== null ? 'Logged' : 'Pending'}</Text>
-        </TouchableOpacity>
+            <View style={styles.scoreContainer}>
+              <View style={styles.scoreCircle}>
+                <Text style={styles.scoreNumber}>{careScore !== null ? careScore : '-'}</Text>
+              </View>
+            </View>
+            <Text style={styles.scoreLabel}>{careScore !== null ? 'Logged' : 'Pending'}</Text>
+          </TouchableOpacity>
 
-        {/* Mood Widget */}
-        <TouchableOpacity style={[styles.metricCard, styles.moodCard]} activeOpacity={0.8} onPress={() => setShowModal(true)}>
-          <View style={styles.metricCardHeader}>
-            <Ionicons name="happy-outline" size={16} color={Colors.text.inverse} />
-            <Text style={styles.metricCardTitle}>Mood</Text>
-          </View>
-          <View style={styles.moodIconContainer}>
-            <Text style={styles.moodEmoji}>{getMoodEmoji(mood)}</Text>
-          </View>
-          <Text style={styles.scoreLabel}>{mood || 'Log now'}</Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={[styles.metricCard, styles.moodCard]}
+            activeOpacity={0.8}
+            onPress={() => setShowModal(true)}
+          >
+            <View style={styles.metricCardHeader}>
+              <Ionicons name="happy-outline" size={16} color={Colors.text.inverse} />
+              <Text style={styles.metricCardTitle}>Mood</Text>
+            </View>
+            <View style={styles.moodIconContainer}>
+              <Text style={styles.moodEmoji}>{getMoodEmoji(mood)}</Text>
+            </View>
+            <Text style={styles.scoreLabel}>{mood || 'Log now'}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
-      {!freudScore && (
+      {!careScore && (
         <TouchableOpacity style={styles.logPromptCard} onPress={() => setShowModal(true)}>
           <View style={styles.logPromptIcon}>
             <Ionicons name="add-circle" size={24} color={Colors.accent.primary} />
@@ -115,43 +174,45 @@ export const MentalHealthDashboard: React.FC = () => {
         </TouchableOpacity>
       )}
 
-      {/* Mindful Tracker List */}
       <View style={styles.header}>
         <Text style={styles.sectionTitle}>Mindful Tracker</Text>
         <Ionicons name="ellipsis-horizontal" size={20} color={Colors.text.secondary} />
       </View>
-      
+
       <Card style={styles.trackerCard}>
-        
-        <TrackerRow 
-          icon="time-outline" 
-          iconColor={Colors.status.success} 
-          iconBg={Colors.status.successSoft} 
-          title="Sleep Quality" 
+        <TrackerRow
+          icon="time-outline"
+          iconColor={Colors.status.success}
+          iconBg={Colors.status.successSoft}
+          title="Sleep Quality"
           subtitle="Hours of sleep"
           rightElement={<Text style={styles.trackerScoreText}>{sleep > 0 ? `${sleep}h` : '--'}</Text>}
         />
 
-        <TrackerRow 
-          icon="journal-outline" 
-          iconColor={Colors.status.warning} 
-          iconBg={Colors.status.warningSoft} 
-          title="Daily Journal" 
+        <TrackerRow
+          icon="journal-outline"
+          iconColor={Colors.status.warning}
+          iconBg={Colors.status.warningSoft}
+          title="Daily Journal"
           subtitle="Thoughts and reflections"
-          rightElement={<Ionicons name={hasJournaled ? "checkmark-circle" : "ellipse-outline"} size={20} color={hasJournaled ? Colors.status.success : Colors.stroke.medium} />}
+          rightElement={
+            <Ionicons
+              name={hasJournaled ? 'checkmark-circle' : 'ellipse-outline'}
+              size={20}
+              color={hasJournaled ? Colors.status.success : Colors.stroke.medium}
+            />
+          }
         />
 
-        <TrackerRow 
-          icon="water-outline" 
-          iconColor="#EBCB6B" 
-          iconBg="#FDF8E7" 
-          title="Stress Level" 
+        <TrackerRow
+          icon="water-outline"
+          iconColor="#EBCB6B"
+          iconBg="#FDF8E7"
+          title="Stress Level"
           subtitle={`Level ${stress > 0 ? stress : '-'}`}
           noBorder
         />
-        
       </Card>
-
     </View>
   );
 };
@@ -185,6 +246,27 @@ const styles = StyleSheet.create({
     ...Typography.bodySemibold,
     color: Colors.text.primary,
   },
+  issueCard: {
+    backgroundColor: Colors.status.warningSoft,
+    borderColor: Colors.status.warning + '20',
+    gap: Spacing.xs,
+  },
+  issueTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+  },
+  issueText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
+  issueRetry: {
+    alignSelf: 'flex-start',
+    marginTop: Spacing.xs,
+  },
+  issueRetryText: {
+    ...Typography.captionEmphasis,
+    color: Colors.accent.primary,
+  },
   metricsRow: {
     flexDirection: 'row',
     gap: Spacing.md,
@@ -197,11 +279,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     height: 180,
   },
-  freudCard: {
-    backgroundColor: Colors.accent.primary, 
+  careCard: {
+    backgroundColor: Colors.accent.primary,
   },
   moodCard: {
-    backgroundColor: Colors.status.warning, 
+    backgroundColor: Colors.status.warning,
   },
   metricCardHeader: {
     flexDirection: 'row',
@@ -250,8 +332,6 @@ const styles = StyleSheet.create({
     ...Typography.bodySemibold,
     color: Colors.text.inverse,
   },
-  
-  // Tracker Styles
   trackerCard: {
     padding: Spacing.md,
     backgroundColor: Colors.bg.secondary,
@@ -283,7 +363,6 @@ const styles = StyleSheet.create({
   },
   trackerContent: {
     flex: 1,
-    gap: 2,
   },
   trackerTitle: {
     ...Typography.bodySemibold,
@@ -292,31 +371,36 @@ const styles = StyleSheet.create({
   trackerSubtitle: {
     ...Typography.caption,
     color: Colors.text.secondary,
+    marginTop: 2,
   },
   trackerScoreText: {
     ...Typography.bodySemibold,
-    color: '#8B7AEB',
+    color: Colors.text.primary,
   },
-  
   logPromptCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.accent.soft,
+    backgroundColor: Colors.bg.secondary,
     padding: Spacing.md,
     borderRadius: Radius.lg,
     borderWidth: 1,
-    borderColor: Colors.accent.primary + '30',
-    marginTop: Spacing.xs,
+    borderColor: Colors.stroke.subtle,
+    gap: Spacing.sm,
   },
   logPromptIcon: {
-    marginRight: Spacing.sm,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.accent.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   logPromptTextContainer: {
     flex: 1,
   },
   logPromptTitle: {
     ...Typography.bodySemibold,
-    color: Colors.accent.dark,
+    color: Colors.text.primary,
   },
   logPromptDesc: {
     ...Typography.caption,

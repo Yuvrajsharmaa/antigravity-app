@@ -22,14 +22,14 @@ Build **"Care Space"**, a comprehensive psychological consultation platform wher
 
 ### 2. Client Journey: Care Plan & Mental Health Tracking
 - **Mental Health Dashboard:** 
-  - Tracks and calculates a dynamic "Freud Score".
+  - Tracks and calculates a dynamic "CareScore".
   - Interactive Daily Check-in Modal (`DailyCheckInModal.tsx`) capturing Mood, Stress, Sleep, and Journal data.
   - Interactive "Mindful Tracker" widgets.
 - **Messages & Nudges:** Care Plan check-ins have actionable "Reply" buttons taking users straight to their active Therapist chat.
 
 ### 3. Therapist Journey: Practice Dashboard
 - **Real-Time Client Roster:** Fetches live clients from the `conversations` table linked to the Therapist.
-- **Alert Triaging:** Automatically scans client metric logs and pushes clients with "High Stress (4+)" or "Low Freud Score (<50)" to the top of the "Needs Attention" list.
+- **Alert Triaging:** Automatically scans client metric logs and pushes clients with "High Stress (4+)" or "Low CareScore (<50)" to the top of the "Needs Attention" list.
 - **Client Detail Screen:** (`ClientDetailScreen.tsx`) allowing therapists to read deep into a client's historical daily metrics and journal entries.
 - **One-Tap Check-in Nudges:** Therapists can tap "Send Check-in" from the dashboard, which dynamically fires a message directly into the client's inbox via Supabase.
 
@@ -40,6 +40,35 @@ Build **"Care Space"**, a comprehensive psychological consultation platform wher
 ---
 
 ## 📈 Recent Updates Log (Changelog)
+
+- **[Codex AGENT] - March 10, 2026 (CareScore + App Interactivity Sprint)**
+  - Added idempotent migration SQL at `supabase/migrations/20260310_care_score_and_client_metrics.sql` to:
+    - Create `client_metrics` if missing.
+    - Hard-migrate `freud_score_snapshot` to `care_score_snapshot`.
+    - Ensure RLS policies and realtime publication for `client_metrics`.
+  - Synced canonical schema (`supabase/schema.sql`) to `care_score_snapshot` naming.
+  - Added backend readiness utilities:
+    - `useClientMetricsReadiness` hook for setup detection.
+    - `BackendSetupCard` component for blocking setup guidance and retry actions.
+  - Refactored mood tracking to be setup-safe and resilient:
+    - `MentalHealthDashboard` now shows setup/error states and uses CareScore naming.
+    - `DailyCheckInModal` now validates sleep input, blocks save when backend setup is missing, and writes `care_score_snapshot`.
+  - Replaced CareScore references across therapist analytics flows:
+    - `TherapistDashboardScreen` alert triaging now uses `care_score_snapshot`.
+    - `ClientDetailScreen` timeline badges now display `CareScore`.
+  - Deepened therapist dashboard interactivity:
+    - Removed all dummy client/session blocks.
+    - Added live stats (active clients, upcoming sessions, expected revenue).
+    - Added live upcoming sessions list with confirm/join actions.
+    - Wired `View all` to Sessions tab with upcoming focus.
+  - Added missing interactive modules/screens:
+    - New `JournalScreen` (view and save journal entries to today's check-in).
+    - New Profile sub-screens: `EditProfileScreen`, `NotificationsScreen` (AsyncStorage-backed), and `InfoScreen` (Privacy, Help, Terms, Policy, About).
+    - Navigation now uses nested Home/Profile stacks to support these flows.
+  - Wired previously non-interactive entry points:
+    - Home notification icon -> notifications settings.
+    - Home daily journal CTA -> journal screen.
+    - Profile menu items now navigate to real sub-screens.
 
 - **[Codex AGENT] - March 10, 2026 (Dev Admin Enablement)**
   - Added dev-admin bootstrapping in `AuthContext.tsx` for `yuvrajsharma6367@gmail.com`:

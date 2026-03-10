@@ -97,7 +97,7 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
     try {
       const endAt = new Date(new Date(selectedSlot.start_at).getTime() + duration * 60000);
 
-      // Create dummy booking (no real payment)
+      // Create booking without payment gateway integration (current prototype behavior)
       const { data: booking, error } = await supabase
         .from('bookings')
         .insert({

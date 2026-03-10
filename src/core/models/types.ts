@@ -112,6 +112,17 @@ export interface Session {
   booking?: Booking;
 }
 
+export interface ClientMetric {
+  id: string;
+  user_id: string;
+  mood: string;
+  stress_level: number;
+  sleep_hours: number;
+  journal_entry: string | null;
+  care_score_snapshot: number;
+  created_at: string;
+}
+
 export interface Payment {
   id: string;
   booking_reference: string;

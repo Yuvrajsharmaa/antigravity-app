@@ -3,8 +3,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform, View } from 'react-native';
-import { Colors, Typography, Spacing } from '../core/theme';
+import { View } from 'react-native';
+import { Colors, Typography } from '../core/theme';
 import { useAuth } from '../core/context/AuthContext';
 import { LoadingState } from '../core/components';
 
@@ -21,13 +21,17 @@ import { MessagesListScreen } from '../features/messages/MessagesListScreen';
 import { ChatScreen } from '../features/messages/ChatScreen';
 import { VideoCallScreen } from '../features/video/VideoCallScreen';
 import { ProfileScreen } from '../features/profile/ProfileScreen';
+import { JournalScreen } from '../features/journal/JournalScreen';
+import { NotificationsScreen } from '../features/profile/NotificationsScreen';
+import { EditProfileScreen } from '../features/profile/EditProfileScreen';
+import { InfoScreen } from '../features/profile/InfoScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 const HomeStack = createNativeStackNavigator();
 const MessagesStack = createNativeStackNavigator();
+const ProfileStack = createNativeStackNavigator();
 
-// Home stack (browse + therapist profile + booking flow)
 const HomeStackScreen = () => (
   <HomeStack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
     <HomeStack.Screen name="HomeMain" component={HomeScreen} />
@@ -35,10 +39,11 @@ const HomeStackScreen = () => (
     <HomeStack.Screen name="SlotSelection" component={SlotSelectionScreen} />
     <HomeStack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} />
     <HomeStack.Screen name="ClientDetail" component={ClientDetailScreen} />
+    <HomeStack.Screen name="Journal" component={JournalScreen} />
+    <HomeStack.Screen name="HomeNotifications" component={NotificationsScreen} />
   </HomeStack.Navigator>
 );
 
-// Messages stack
 const MessagesStackScreen = () => (
   <MessagesStack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
     <MessagesStack.Screen name="MessagesList" component={MessagesListScreen} />
@@ -46,10 +51,18 @@ const MessagesStackScreen = () => (
   </MessagesStack.Navigator>
 );
 
-// Main tab navigator
+const ProfileStackScreen = () => (
+  <ProfileStack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+    <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
+    <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} />
+    <ProfileStack.Screen name="Notifications" component={NotificationsScreen} />
+    <ProfileStack.Screen name="ProfileInfo" component={InfoScreen} />
+  </ProfileStack.Navigator>
+);
+
 const MainTabs = () => {
   const insets = require('react-native-safe-area-context').useSafeAreaInsets();
-  
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -97,7 +110,7 @@ const MainTabs = () => {
       <Tab.Screen name="HomeTab" component={HomeStackScreen} options={{ tabBarLabel: 'Home' }} />
       <Tab.Screen name="SessionsTab" component={SessionsScreen} options={{ tabBarLabel: 'Sessions' }} />
       <Tab.Screen name="MessagesTab" component={MessagesStackScreen} options={{ tabBarLabel: 'Messages' }} />
-      <Tab.Screen name="ProfileTab" component={ProfileScreen} options={{ tabBarLabel: 'Profile' }} />
+      <Tab.Screen name="ProfileTab" component={ProfileStackScreen} options={{ tabBarLabel: 'Profile' }} />
     </Tab.Navigator>
   );
 };
