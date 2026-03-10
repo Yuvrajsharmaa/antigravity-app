@@ -28,7 +28,7 @@ const MessagesStack = createNativeStackNavigator();
 
 // Home stack (browse + therapist profile + booking flow)
 const HomeStackScreen = () => (
-  <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+  <HomeStack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
     <HomeStack.Screen name="HomeMain" component={HomeScreen} />
     <HomeStack.Screen name="TherapistProfile" component={TherapistProfileScreen} />
     <HomeStack.Screen name="SlotSelection" component={SlotSelectionScreen} />
@@ -38,7 +38,7 @@ const HomeStackScreen = () => (
 
 // Messages stack
 const MessagesStackScreen = () => (
-  <MessagesStack.Navigator screenOptions={{ headerShown: false }}>
+  <MessagesStack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
     <MessagesStack.Screen name="MessagesList" component={MessagesListScreen} />
     <MessagesStack.Screen name="Chat" component={ChatScreen} />
   </MessagesStack.Navigator>
@@ -113,7 +113,7 @@ export const AppNavigator: React.FC = () => {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
         {!session ? (
           <Stack.Screen name="Welcome" component={WelcomeScreen} />
         ) : !profile?.onboarding_completed ? (

@@ -15,9 +15,9 @@ export const Colors = {
     medium: '#D4D0C8',
   },
   accent: {
-    primary: '#6E73FF',
-    soft: '#EEF0FF',
-    dark: '#5A5FE0',
+    primary: '#6C8E7B',
+    soft: '#E8EFEA',
+    dark: '#4F6C5B',
   },
   status: {
     success: '#2E9B61',

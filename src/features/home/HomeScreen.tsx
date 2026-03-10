@@ -16,11 +16,12 @@ import { Shadow } from '../../core/theme/spacing';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { Therapist } from '../../core/models/types';
+import { TherapistDashboardScreen } from '../therapist-dashboard/TherapistDashboardScreen';
 
 const FILTER_OPTIONS = ['All', 'Anxiety', 'Relationships', 'Loneliness', 'Work Stress', 'Self-Esteem', 'Grief'];
 
 export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { profile } = useAuth();
+  const { profile, isTherapistMode } = useAuth();
   const [therapists, setTherapists] = useState<Therapist[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -143,7 +144,49 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.sectionTitle}>Available therapists</Text>
+      {/* Conditional Rendering based on Role Mode */}
+      {isTherapistMode ? (
+        <TherapistDashboardScreen />
+      ) : (
+        <>
+          {/* Care Plan Section (Client UX) */}
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent.primary} />
+            }
+          >
+            <View style={styles.carePlanContainer}>
+              <Text style={styles.sectionTitle}>Your Care Plan</Text>
+              <Card style={styles.actionCard}>
+                <View style={styles.actionIconContainer}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={24} color={Colors.accent.primary} />
+                </View>
+                <View style={styles.actionContent}>
+                  <Text style={styles.actionTitle}>Therapist Check-in</Text>
+                  <Text style={styles.actionDesc}>Dr. Sharma wants to know how your breathing exercise went today.</Text>
+                </View>
+                <TouchableOpacity style={styles.actionBtnPrimary}>
+                  <Text style={styles.actionBtnText}>Reply</Text>
+                </TouchableOpacity>
+              </Card>
+
+              <Card style={styles.actionCard}>
+                <View style={[styles.actionIconContainer, { backgroundColor: Colors.status.warningSoft }]}>
+                  <Ionicons name="journal-outline" size={24} color={Colors.status.warning} />
+                </View>
+                <View style={styles.actionContent}>
+                  <Text style={styles.actionTitle}>Daily Journal</Text>
+                  <Text style={styles.actionDesc}>Take 5 minutes to reflect on your goals for this week.</Text>
+                </View>
+                <TouchableOpacity style={styles.actionBtnOutline}>
+                  <Text style={styles.actionBtnTextOutline}>Start</Text>
+                </TouchableOpacity>
+              </Card>
+            </View>
+
+            <Text style={styles.sectionTitle}>Available therapists</Text>
 
       {/* Filter chips */}
       <ScrollView
@@ -161,28 +204,24 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         ))}
       </ScrollView>
 
-      {/* Therapist list */}
-      {loading ? (
-        <LoadingState message="Finding therapists..." />
-      ) : therapists.length === 0 ? (
-        <EmptyState
-          icon="search-outline"
-          title="No therapists found"
-          message="Try changing your filters or check back later."
-          actionLabel="Clear filters"
-          onAction={() => setSelectedFilter('All')}
-        />
-      ) : (
-        <FlatList
-          data={therapists}
-          renderItem={renderTherapistCard}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent.primary} />
-          }
-        />
+        {/* Therapist list */}
+        {loading ? (
+          <LoadingState message="Finding therapists..." />
+        ) : therapists.length === 0 ? (
+          <EmptyState
+            icon="search-outline"
+            title="No therapists found"
+            message="Try changing your filters or check back later."
+            actionLabel="Clear filters"
+            onAction={() => setSelectedFilter('All')}
+          />
+        ) : (
+          <View style={styles.listContent}>
+            {therapists.map(t => <React.Fragment key={t.id}>{renderTherapistCard({ item: t })}</React.Fragment>)}
+          </View>
+        )}
+        </ScrollView>
+        </>
       )}
     </SafeAreaView>
   );
@@ -232,6 +271,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     gap: Spacing.xs,
     paddingBottom: Spacing.sm,
+  },
+  scrollContent: {
+    paddingBottom: 100, // accommodate tab bar overlay space
   },
   listContent: {
     paddingHorizontal: Spacing.xl,
@@ -321,5 +363,59 @@ const styles = StyleSheet.create({
   viewProfileText: {
     ...Typography.captionEmphasis,
     color: Colors.accent.primary,
+  },
+  carePlanContainer: {
+    paddingHorizontal: Spacing.xl,
+    marginBottom: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  actionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.md,
+  },
+  actionIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.accent.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionContent: {
+    flex: 1,
+  },
+  actionTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+  },
+  actionDesc: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginTop: 2,
+    lineHeight: 18,
+  },
+  actionBtnPrimary: {
+    backgroundColor: Colors.accent.primary,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 8,
+    borderRadius: Radius.md,
+  },
+  actionBtnText: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.inverse,
+  },
+  actionBtnOutline: {
+    backgroundColor: Colors.bg.secondary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.medium,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 8,
+    borderRadius: Radius.md,
+  },
+  actionBtnTextOutline: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.primary,
   },
 });
