@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Button, Card, PillChip } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { Colors, Radius, Spacing, Typography } from '../../core/theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ensureNotificationPermission,
   scheduleAdaptiveWellbeingReminders,
@@ -69,6 +70,11 @@ const QUIET_START_OPTIONS = ['20:00:00', '21:00:00', '22:00:00'];
 const QUIET_END_OPTIONS = ['07:00:00', '08:00:00', '09:00:00'];
 const THERAPIST_STYLE_OPTIONS = ['Warm and conversational', 'Structured and goal-focused', 'Mindfulness-led'];
 const SLEEP_OPTIONS = ['5', '6', '7', '8', '9'];
+const ENGAGEMENT_OPTIONS: Array<{ label: string; value: 'gentle' | 'balanced' | 'high' }> = [
+  { label: 'Gentle', value: 'gentle' },
+  { label: 'Balanced', value: 'balanced' },
+  { label: 'High', value: 'high' },
+];
 const MOOD_CHIP_LABELS: Record<string, string> = {
   Calm: 'Calm 🙂',
   Low: 'Low 🙁',
@@ -135,6 +141,8 @@ export const OnboardingScreen: React.FC = () => {
   const [quietEnd, setQuietEnd] = useState('08:00:00');
   const [journalEnabled, setJournalEnabled] = useState(false);
   const [journalSharing, setJournalSharing] = useState<(typeof JOURNAL_SHARE_OPTIONS)[number]['value']>('summary');
+  const [careBuddyEnabled, setCareBuddyEnabled] = useState(true);
+  const [engagementMode, setEngagementMode] = useState<'gentle' | 'balanced' | 'high'>('balanced');
   const [checkInMood, setCheckInMood] = useState<string | null>(null);
   const [checkInStress, setCheckInStress] = useState(3);
   const [checkInSleep, setCheckInSleep] = useState('7');
@@ -162,6 +170,31 @@ export const OnboardingScreen: React.FC = () => {
   }, [isTherapistFlow]);
   const progressPercent = `${((step + 1) / totalSteps) * 100}%` as `${number}%`;
   const welcomeMinHeight = Math.max(440, viewportHeight - 220);
+  const progressStorageKey = user?.id
+    ? `care_space_onboarding_step_${user.id}_${isTherapistFlow ? 'therapist' : 'client'}`
+    : null;
+
+  useEffect(() => {
+    if (!progressStorageKey) return;
+
+    AsyncStorage.getItem(progressStorageKey)
+      .then((value) => {
+        const next = Number.parseInt(value || '', 10);
+        if (Number.isFinite(next) && next >= 0 && next < totalSteps) {
+          setStep(next);
+        }
+      })
+      .catch(() => {
+        // Resume is best effort only.
+      });
+  }, [progressStorageKey, totalSteps]);
+
+  useEffect(() => {
+    if (!progressStorageKey) return;
+    AsyncStorage.setItem(progressStorageKey, String(step)).catch(() => {
+      // Resume is best effort only.
+    });
+  }, [progressStorageKey, step]);
 
   const toggleTag = (value: string, list: string[], setter: (value: string[]) => void, limit?: number) => {
     if (list.includes(value)) {
@@ -260,6 +293,9 @@ export const OnboardingScreen: React.FC = () => {
         care_style_preference: careStylePreference,
         journal_enabled: journalEnabled,
         journal_sharing: journalEnabled ? journalSharing : 'none',
+        care_buddy_enabled: careBuddyEnabled,
+        engagement_mode: engagementMode,
+        nudge_snooze_until: null,
       };
 
       const { error: prefError } = await supabase
@@ -295,6 +331,9 @@ export const OnboardingScreen: React.FC = () => {
       }
 
       await refreshProfile();
+      if (progressStorageKey) {
+        await AsyncStorage.removeItem(progressStorageKey);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Something went wrong saving onboarding.';
       Alert.alert('Unable to finish onboarding', message);
@@ -537,6 +576,27 @@ export const OnboardingScreen: React.FC = () => {
                   </View>
                 </>
               )}
+            </Card>
+
+            <Card style={styles.stepCard}>
+              <Text style={styles.fieldLabel}>Care Buddy personality</Text>
+              <CheckBox
+                checked={careBuddyEnabled}
+                onPress={() => setCareBuddyEnabled((prev) => !prev)}
+                label="Enable friendly coaching copy in reminders and dashboards"
+              />
+              <Text style={styles.fieldLabel}>Engagement mode</Text>
+              <View style={styles.wrapRow}>
+                {ENGAGEMENT_OPTIONS.map((item) => (
+                  <PillChip
+                    key={item.value}
+                    label={item.label}
+                    selected={engagementMode === item.value}
+                    onPress={() => setEngagementMode(item.value)}
+                  />
+                ))}
+              </View>
+              <Text style={styles.fieldHelper}>Balanced is recommended for motivating but calm support.</Text>
             </Card>
           </View>
         );

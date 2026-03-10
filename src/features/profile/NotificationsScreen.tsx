@@ -7,6 +7,7 @@ import { Button, Card, PillChip } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { cancelWellbeingReminders, scheduleAdaptiveWellbeingReminders } from '../../core/utils/wellbeingNotifications';
+import { careBuddyLine } from '../../core/utils/careBuddy';
 
 const STORAGE_KEY = 'care_space_notification_preferences';
 const REMINDER_TIMES = ['09:00:00', '14:00:00', '19:00:00'];
@@ -35,6 +36,9 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
   const [reminderTime, setReminderTime] = useState('19:00:00');
   const [quietStart, setQuietStart] = useState('21:00:00');
   const [quietEnd, setQuietEnd] = useState('08:00:00');
+  const [careBuddyEnabled, setCareBuddyEnabled] = useState(true);
+  const [engagementMode, setEngagementMode] = useState<'gentle' | 'balanced' | 'high'>('balanced');
+  const [nudgeSnoozeUntil, setNudgeSnoozeUntil] = useState<string | null>(null);
 
   useEffect(() => {
     const loadPrefs = async () => {
@@ -50,7 +54,7 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
       if (user?.id) {
         const { data } = await supabase
           .from('user_preferences')
-          .select('wellbeing_reminders_enabled, wellbeing_reminder_time, quiet_hours_start, quiet_hours_end')
+          .select('wellbeing_reminders_enabled, wellbeing_reminder_time, quiet_hours_start, quiet_hours_end, care_buddy_enabled, engagement_mode, nudge_snooze_until')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -63,6 +67,9 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
           if (data.wellbeing_reminder_time) setReminderTime(data.wellbeing_reminder_time);
           if (data.quiet_hours_start) setQuietStart(data.quiet_hours_start);
           if (data.quiet_hours_end) setQuietEnd(data.quiet_hours_end);
+          setCareBuddyEnabled(data.care_buddy_enabled ?? true);
+          setEngagementMode((data.engagement_mode as 'gentle' | 'balanced' | 'high') || 'balanced');
+          setNudgeSnoozeUntil(data.nudge_snooze_until || null);
         }
       }
 
@@ -78,7 +85,15 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
   };
 
   const persistReminderPrefs = async (
-    next: Partial<{ wellbeingReminders: boolean; reminderTime: string; quietStart: string; quietEnd: string }>,
+    next: Partial<{
+      wellbeingReminders: boolean;
+      reminderTime: string;
+      quietStart: string;
+      quietEnd: string;
+      careBuddyEnabled: boolean;
+      engagementMode: 'gentle' | 'balanced' | 'high';
+      nudgeSnoozeUntil: string | null;
+    }>,
   ) => {
     if (!user?.id) return;
 
@@ -87,6 +102,9 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
       reminderTime: next.reminderTime ?? reminderTime,
       quietStart: next.quietStart ?? quietStart,
       quietEnd: next.quietEnd ?? quietEnd,
+      careBuddyEnabled: next.careBuddyEnabled ?? careBuddyEnabled,
+      engagementMode: next.engagementMode ?? engagementMode,
+      nudgeSnoozeUntil: next.nudgeSnoozeUntil ?? nudgeSnoozeUntil,
     };
 
     await supabase
@@ -98,6 +116,9 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
           wellbeing_reminder_time: mergedPrefs.reminderTime,
           quiet_hours_start: mergedPrefs.quietStart,
           quiet_hours_end: mergedPrefs.quietEnd,
+          care_buddy_enabled: mergedPrefs.careBuddyEnabled,
+          engagement_mode: mergedPrefs.engagementMode,
+          nudge_snooze_until: mergedPrefs.nudgeSnoozeUntil,
         },
         { onConflict: 'user_id' },
       );
@@ -107,6 +128,21 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
     } else {
       await cancelWellbeingReminders(user.id);
     }
+  };
+
+  const applySnooze = async (hours: number) => {
+    if (!user?.id) return;
+    const until = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+    setNudgeSnoozeUntil(until);
+    await persistReminderPrefs({ nudgeSnoozeUntil: until });
+    await cancelWellbeingReminders(user.id);
+  };
+
+  const clearSnooze = async () => {
+    if (!user?.id) return;
+    setNudgeSnoozeUntil(null);
+    await persistReminderPrefs({ nudgeSnoozeUntil: null });
+    await scheduleAdaptiveWellbeingReminders(user.id);
   };
 
   const update = async (key: keyof NotificationPrefs, value: boolean) => {
@@ -155,6 +191,37 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
 
       {prefs.wellbeingReminders && (
         <Card style={styles.preferencesCard}>
+          <Text style={styles.buddyHint}>{careBuddyLine('reassure')}</Text>
+          <ToggleRow
+            title="Care Buddy personality"
+            subtitle="Friendly coaching copy in reminders and care prompts"
+            value={careBuddyEnabled}
+            onChange={async (val) => {
+              setCareBuddyEnabled(val);
+              await persistReminderPrefs({ careBuddyEnabled: val });
+            }}
+            noBorder
+          />
+
+          <Text style={styles.prefLabel}>Engagement mode</Text>
+          <View style={styles.pillRow}>
+            {[
+              { label: 'Gentle', value: 'gentle' },
+              { label: 'Balanced', value: 'balanced' },
+              { label: 'High', value: 'high' },
+            ].map((mode) => (
+              <PillChip
+                key={mode.value}
+                label={mode.label}
+                selected={engagementMode === mode.value}
+                onPress={async () => {
+                  setEngagementMode(mode.value as 'gentle' | 'balanced' | 'high');
+                  await persistReminderPrefs({ engagementMode: mode.value as 'gentle' | 'balanced' | 'high' });
+                }}
+              />
+            ))}
+          </View>
+
           <Text style={styles.prefLabel}>Reminder time</Text>
           <View style={styles.pillRow}>
             {REMINDER_TIMES.map((item) => (
@@ -199,6 +266,21 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
               />
             ))}
           </View>
+
+          <Text style={styles.prefLabel}>Snooze wellbeing nudges</Text>
+          <View style={styles.pillRow}>
+            <PillChip label="Today" selected={false} onPress={() => applySnooze(12)} />
+            <PillChip label="48h" selected={false} onPress={() => applySnooze(48)} />
+            <PillChip label="This week" selected={false} onPress={() => applySnooze(168)} />
+            {nudgeSnoozeUntil ? (
+              <PillChip label="Resume now" selected={false} onPress={clearSnooze} />
+            ) : null}
+          </View>
+          {nudgeSnoozeUntil ? (
+            <Text style={styles.snoozeText}>
+              Snoozed until {new Date(nudgeSnoozeUntil).toLocaleString()}.
+            </Text>
+          ) : null}
         </Card>
       )}
     </SafeAreaView>
@@ -258,10 +340,20 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
     marginTop: Spacing.xs,
   },
+  buddyHint: {
+    ...Typography.caption,
+    color: Colors.accent.primary,
+    marginBottom: Spacing.xs,
+  },
   pillRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.xs,
+  },
+  snoozeText: {
+    ...Typography.caption,
+    color: Colors.text.tertiary,
+    marginTop: 2,
   },
   row: {
     flexDirection: 'row',

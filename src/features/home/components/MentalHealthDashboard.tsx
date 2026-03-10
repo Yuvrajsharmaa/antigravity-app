@@ -9,7 +9,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { DailyCheckInModal } from './DailyCheckInModal';
 import { useClientMetricsReadiness } from '../../../core/hooks/useClientMetricsReadiness';
 
-export const MentalHealthDashboard: React.FC = () => {
+export const MentalHealthDashboard: React.FC<{ openSignal?: number }> = ({ openSignal = 0 }) => {
   const { user } = useAuth();
   const { ready, checking, requiresSetup, issue, refresh } = useClientMetricsReadiness();
 
@@ -70,6 +70,12 @@ export const MentalHealthDashboard: React.FC = () => {
       fetchTodayMetrics();
     }
   }, [fetchTodayMetrics, ready]);
+
+  useEffect(() => {
+    if (openSignal > 0) {
+      setShowModal(true);
+    }
+  }, [openSignal]);
 
   const getMoodEmoji = (currentMood: string | null) => {
     switch (currentMood) {

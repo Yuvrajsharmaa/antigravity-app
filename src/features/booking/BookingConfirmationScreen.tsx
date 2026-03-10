@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
 import { Button, Card, Avatar } from '../../core/components';
+import { careBuddyLine } from '../../core/utils/careBuddy';
 
 export const BookingConfirmationScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
@@ -86,6 +87,18 @@ export const BookingConfirmationScreen: React.FC<{ route: any; navigation: any }
           </Text>
         </View>
 
+        <Card style={styles.timelineCard}>
+          <Text style={styles.timelineTitle}>What happens next</Text>
+          <StepRow icon="checkmark-circle-outline" label="Booking request saved" done />
+          <StepRow
+            icon="time-outline"
+            label="Therapist confirms your slot"
+            done={!isPendingConfirmation}
+          />
+          <StepRow icon="videocam-outline" label="Join from Sessions when ready" done={!isPendingConfirmation} />
+          <Text style={styles.timelineHint}>{careBuddyLine('reassure')}</Text>
+        </Card>
+
         {/* Actions */}
         <View style={styles.actions}>
           <Button
@@ -156,5 +169,40 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xl,
   },
   reminderText: { ...Typography.caption, color: Colors.accent.dark, flex: 1, lineHeight: 18 },
+  timelineCard: {
+    width: '100%',
+    marginBottom: Spacing.xl,
+    gap: Spacing.xs,
+  },
+  timelineTitle: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.secondary,
+    textTransform: 'uppercase',
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingVertical: 2,
+  },
+  stepLabel: {
+    ...Typography.caption,
+    color: Colors.text.primary,
+  },
+  stepDone: {
+    color: Colors.status.success,
+  },
+  timelineHint: {
+    ...Typography.caption,
+    color: Colors.accent.primary,
+    marginTop: Spacing.xs,
+  },
   actions: { width: '100%', gap: Spacing.sm },
 });
+
+const StepRow: React.FC<{ icon: keyof typeof Ionicons.glyphMap; label: string; done: boolean }> = ({ icon, label, done }) => (
+  <View style={styles.stepRow}>
+    <Ionicons name={icon} size={16} color={done ? Colors.status.success : Colors.text.tertiary} />
+    <Text style={[styles.stepLabel, done && styles.stepDone]}>{label}</Text>
+  </View>
+);

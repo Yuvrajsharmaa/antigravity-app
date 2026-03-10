@@ -15,6 +15,8 @@ import { Button, Card, Avatar } from '../../core/components';
 import { Therapist, AvailabilitySlot } from '../../core/models/types';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../core/context/AuthContext';
+import { ensureConversation } from '../../core/services/careFlowService';
+import { asDependencyState, dependenciesReady, describeBlockingDependency } from '../../core/utils/flowDependencies';
 
 export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
@@ -91,22 +93,31 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
   };
 
   const handleBook = async () => {
-    if (!selectedSlot || !user) return;
+    const dependencies = [
+      asDependencyState('user', 'User account', Boolean(user?.id), 'Sign in again and retry booking.'),
+      asDependencyState('slot', 'Selected slot', Boolean(selectedSlot?.id), 'Choose an available slot to continue.'),
+      asDependencyState('therapist', 'Therapist profile', Boolean(therapist?.id), 'Go back and re-open therapist profile.'),
+    ];
+    if (!dependenciesReady(dependencies)) {
+      Alert.alert('Cannot continue', describeBlockingDependency(dependencies) || 'Required details are missing.');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const endAt = new Date(new Date(selectedSlot.start_at).getTime() + duration * 60000);
+      const endAt = new Date(new Date(selectedSlot!.start_at).getTime() + duration * 60000);
 
       // Create booking without payment gateway integration (current prototype behavior)
       const { data: booking, error } = await supabase
         .from('bookings')
         .insert({
-          user_id: user.id,
+          user_id: user!.id,
           therapist_id: therapist.id,
-          slot_id: selectedSlot.id,
+          slot_id: selectedSlot!.id,
           session_type: 'video',
           status: 'pending_payment',
-          scheduled_start_at: selectedSlot.start_at,
+          scheduled_start_at: selectedSlot!.start_at,
           scheduled_end_at: endAt.toISOString(),
           amount_inr: therapist.session_fee_inr,
         })
@@ -115,23 +126,10 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
 
       if (error) throw error;
 
-      // Create or get conversation
-      const { data: existingConv, error: convFetchError } = await supabase
-        .from('conversations')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('therapist_id', therapist.id)
-        .maybeSingle();
-
-      if (convFetchError) throw convFetchError;
-
-      if (!existingConv) {
-        const { error: convCreateError } = await supabase.from('conversations').insert({
-          user_id: user.id,
-          therapist_id: therapist.id,
-        });
-        if (convCreateError) throw convCreateError;
-      }
+      await ensureConversation({
+        userId: user!.id,
+        therapistId: therapist.id,
+      });
 
       navigation.navigate('BookingConfirmation', {
         therapist,

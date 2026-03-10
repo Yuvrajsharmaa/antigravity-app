@@ -10,6 +10,8 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useClientMetricsReadiness } from '../../core/hooks/useClientMetricsReadiness';
 import { assessCareRisk, riskPriority } from '../../core/utils/careRisk';
 import { RiskLevel } from '../../core/models/types';
+import { confirmBookingAndEnsureSession, createCareNudgeEvent } from '../../core/services/careFlowService';
+import { therapistNudgePrefill } from '../../core/utils/careBuddy';
 
 interface DashboardClient {
   id: string;
@@ -264,47 +266,10 @@ export const TherapistDashboardScreen: React.FC = () => {
 
     setActionLoadingId(item.bookingId);
     try {
-      const { data: slotLock, error: slotError } = await supabase
-        .from('availability_slots')
-        .update({ is_available: false })
-        .eq('id', item.slotId)
-        .eq('is_available', true)
-        .select('id')
-        .maybeSingle();
-
-      if (slotError) throw slotError;
-      if (!slotLock) throw new Error('This slot is no longer available.');
-
-      const { data: bookingUpdate, error: bookingError } = await supabase
-        .from('bookings')
-        .update({ status: 'confirmed', updated_at: new Date().toISOString() })
-        .eq('id', item.bookingId)
-        .eq('status', 'pending_payment')
-        .select('id')
-        .maybeSingle();
-
-      if (bookingError) throw bookingError;
-      if (!bookingUpdate) throw new Error('Booking could not be confirmed.');
-
-      const { data: existingSession, error: existingSessionError } = await supabase
-        .from('sessions')
-        .select('id')
-        .eq('booking_id', item.bookingId)
-        .maybeSingle();
-
-      if (existingSessionError) throw existingSessionError;
-
-      if (!existingSession) {
-        const { error: createSessionError } = await supabase
-          .from('sessions')
-          .insert({
-            booking_id: item.bookingId,
-            status: 'scheduled',
-            video_call_id: `call_${item.bookingId.slice(0, 8)}`,
-          });
-
-        if (createSessionError) throw createSessionError;
-      }
+      await confirmBookingAndEnsureSession({
+        bookingId: item.bookingId,
+        slotId: item.slotId,
+      });
 
       Alert.alert('Booking confirmed', 'Client can now join the video session.');
       fetchDashboard();
@@ -325,7 +290,8 @@ export const TherapistDashboardScreen: React.FC = () => {
           text: 'Send Template',
           onPress: async () => {
             try {
-              const text = `Hi ${clientName}, I noticed your recent trend: ${reason}. Take a deep breath and let me know how you're feeling today.`;
+              const riskLevel = reason.toLowerCase().includes('high') ? 'high' : reason.toLowerCase().includes('strain') ? 'medium' : 'stable';
+              const text = `Hi ${clientName}, ${therapistNudgePrefill(riskLevel as RiskLevel, reason)}`;
               await supabase.from('messages').insert({
                 conversation_id: conversationId,
                 sender_id: user?.id,
@@ -336,6 +302,18 @@ export const TherapistDashboardScreen: React.FC = () => {
                 .from('conversations')
                 .update({ last_message_at: new Date().toISOString() })
                 .eq('id', conversationId);
+
+              const client = clients.find((item) => item.conversationId === conversationId);
+              if (client?.id) {
+                await createCareNudgeEvent({
+                  userId: client.id,
+                  therapistId: user?.id || null,
+                  triggerType: 'therapist_checkin',
+                  riskLevel: riskLevel as RiskLevel,
+                  source: 'therapist_manual',
+                  messagePreview: text,
+                });
+              }
               Alert.alert('Sent', 'Check-in sent successfully!');
             } catch (sendError) {
               Alert.alert('Error', 'Failed to send message.');

@@ -25,6 +25,9 @@ export interface UserPreferences {
   care_style_preference?: string | null;
   journal_enabled?: boolean;
   journal_sharing?: 'none' | 'summary' | 'entry_by_entry' | 'all';
+  engagement_mode?: 'gentle' | 'balanced' | 'high';
+  nudge_snooze_until?: string | null;
+  care_buddy_enabled?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -133,6 +136,39 @@ export interface ClientMetric {
 }
 
 export type RiskLevel = 'high' | 'medium' | 'stable';
+
+export type DependencyStatus = 'ready' | 'missing' | 'recoverable';
+
+export interface FlowDependencyState {
+  key: string;
+  label: string;
+  status: DependencyStatus;
+  detail?: string;
+  actionHint?: string;
+}
+
+export interface CareJourneyGoal {
+  key: 'check_in' | 'reflect' | 'connect';
+  label: string;
+  completed: boolean;
+  helper: string;
+}
+
+export interface CareJourneyState {
+  dateKey: string;
+  completedCount: number;
+  totalCount: number;
+  rhythmDays: number;
+  goals: CareJourneyGoal[];
+  nextActionLabel: string;
+}
+
+export interface ConversationHealthState {
+  conversationId: string;
+  awaitingReply: boolean;
+  lastActivityAt: string | null;
+  recentMood: string | null;
+}
 
 export interface CareNudgeEvent {
   id: string;

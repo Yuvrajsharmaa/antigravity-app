@@ -7,6 +7,9 @@ import { useAuth } from '../../core/context/AuthContext';
 import { Colors, Radius, Spacing, Typography } from '../../core/theme';
 import { scheduleAdaptiveWellbeingReminders } from '../../core/utils/wellbeingNotifications';
 import { supabase } from '../../services/supabase';
+import { createCareNudgeEvent, ensureConversation } from '../../core/services/careFlowService';
+import { careBuddyLine } from '../../core/utils/careBuddy';
+import * as Haptics from 'expo-haptics';
 
 interface ReflectionSessionPayload {
   id: string | null;
@@ -74,6 +77,7 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
       if (error) throw error;
 
       await scheduleAdaptiveWellbeingReminders(user.id);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Saved', 'Reflection captured. Great work showing up for yourself.');
       goToSessions();
     } catch (err: any) {
@@ -85,29 +89,10 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
 
   const findOrCreateConversation = async () => {
     if (!user || !session.participant_id) return null;
-
-    const { data: existing, error: readError } = await supabase
-      .from('conversations')
-      .select('id')
-      .eq('user_id', session.participant_id)
-      .eq('therapist_id', user.id)
-      .maybeSingle();
-
-    if (readError) throw readError;
-    if (existing?.id) return existing.id;
-
-    const { data: created, error: createError } = await supabase
-      .from('conversations')
-      .insert({
-        user_id: session.participant_id,
-        therapist_id: user.id,
-        last_message_at: new Date().toISOString(),
-      })
-      .select('id')
-      .single();
-
-    if (createError) throw createError;
-    return created.id;
+    return ensureConversation({
+      userId: session.participant_id,
+      therapistId: user.id,
+    });
   };
 
   const sendTherapistFollowUp = async () => {
@@ -136,16 +121,14 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
 
       if (updateConvError) throw updateConvError;
 
-      const { error: eventError } = await supabase.from('care_nudge_events').insert({
-        user_id: session.participant_id,
-        therapist_id: user.id,
-        trigger_type: 'followup_sent',
-        risk_level: 'stable',
+      await createCareNudgeEvent({
+        userId: session.participant_id,
+        therapistId: user.id,
+        triggerType: 'followup_sent',
+        riskLevel: 'stable',
         source: 'therapist_manual',
-        message_preview: 'Post-session follow-up sent by therapist',
+        messagePreview: 'Post-session follow-up sent by therapist',
       });
-
-      if (eventError) throw eventError;
 
       setFollowUpSent(true);
       Alert.alert('Sent', 'Follow-up nudge delivered to the client chat.');
@@ -161,16 +144,14 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
 
     setSaving(true);
     try {
-      const { error } = await supabase.from('care_nudge_events').insert({
-        user_id: session.participant_id,
-        therapist_id: user.id,
-        trigger_type: 'followup_marked',
-        risk_level: 'stable',
+      await createCareNudgeEvent({
+        userId: session.participant_id,
+        therapistId: user.id,
+        triggerType: 'followup_marked',
+        riskLevel: 'stable',
         source: 'therapist_manual',
-        message_preview: 'Therapist marked post-session follow-up as sent',
+        messagePreview: 'Therapist marked post-session follow-up as sent',
       });
-
-      if (error) throw error;
 
       setFollowUpSent(true);
       Alert.alert('Saved', 'Follow-up marked as sent.');
@@ -193,6 +174,7 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
         {!isTherapistMode ? (
           <>
             <Card>
+              <Text style={styles.helperText}>{careBuddyLine('reflect')}</Text>
               <Text style={styles.sectionTitle}>How do you feel after this session?</Text>
               <View style={styles.chipsRow}>
                 {REFLECTION_MOODS.map((item) => (
@@ -327,8 +309,8 @@ const styles = StyleSheet.create({
   },
   helperText: {
     ...Typography.caption,
-    color: Colors.text.secondary,
-    marginBottom: Spacing.md,
+    color: Colors.accent.primary,
+    marginBottom: Spacing.sm,
   },
   actionBtn: {
     flexDirection: 'row',
