@@ -41,6 +41,11 @@ Build **"Care Space"**, a comprehensive psychological consultation platform wher
 
 ## 📈 Recent Updates Log (Changelog)
 
+- **[Codex AGENT] - March 10, 2026 (Profile UX Utility)**
+  - Added `View onboarding again` action in `src/features/profile/ProfileScreen.tsx`.
+  - Action resets `profiles.onboarding_completed = false` for current user and refreshes auth profile state.
+  - App now routes the user back into onboarding immediately after triggering restart.
+
 - **[Codex AGENT] - March 10, 2026 (Onboarding UX Refinement + Therapist Snapshot Upgrade)**
   - Added and applied migration `supabase/migrations/20260310232000_onboarding_journal_preferences.sql` on project `hvzmxceeitrabskaikmm`:
     - Extended `user_preferences` with onboarding/matching/journal controls:
