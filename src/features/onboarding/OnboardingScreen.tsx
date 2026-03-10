@@ -64,23 +64,6 @@ const REMINDER_TIMES = ['09:00:00', '14:00:00', '19:00:00'];
 const QUIET_START_OPTIONS = ['20:00:00', '21:00:00', '22:00:00'];
 const QUIET_END_OPTIONS = ['07:00:00', '08:00:00', '09:00:00'];
 const THERAPIST_STYLE_OPTIONS = ['Warm and conversational', 'Structured and goal-focused', 'Mindfulness-led'];
-const CLIENT_STEP_LABELS = ['Welcome', 'Name', 'Intent', 'Preferences', 'Check-in', 'Consent'];
-const CLIENT_STEP_HINTS = [
-  'A calm start in under 2 minutes.',
-  'Tell us what to call you.',
-  'Pick one or two reasons for joining.',
-  'Help us suggest better therapist matches.',
-  'Optional context for a smoother first session.',
-  'Safety and consent before you continue.',
-];
-const THERAPIST_STEP_LABELS = ['Welcome', 'Profile', 'Expertise', 'Practice', 'Compliance'];
-const THERAPIST_STEP_HINTS = [
-  'Set the tone of your Care Space presence.',
-  'Add your display profile.',
-  'Define specialties and language coverage.',
-  'Choose your style and preferred format.',
-  'Confirm boundaries and confidentiality.',
-];
 const MOOD_CHIP_LABELS: Record<string, string> = {
   Calm: 'Calm 🙂',
   Low: 'Low 🙁',
@@ -171,9 +154,7 @@ export const OnboardingScreen: React.FC = () => {
     if (isTherapistFlow) return 'Welcome to your Care Space practice';
     return 'Talk to a qualified psychologist, without awkward admin';
   }, [isTherapistFlow]);
-
-  const currentStepLabel = isTherapistFlow ? THERAPIST_STEP_LABELS[step] : CLIENT_STEP_LABELS[step];
-  const currentStepHint = isTherapistFlow ? THERAPIST_STEP_HINTS[step] : CLIENT_STEP_HINTS[step];
+  const progressPercent = `${((step + 1) / totalSteps) * 100}%` as `${number}%`;
 
   const toggleTag = (value: string, list: string[], setter: (value: string[]) => void, limit?: number) => {
     if (list.includes(value)) {
@@ -684,26 +665,10 @@ export const OnboardingScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <View style={styles.stepHeaderCard}>
-        <View style={styles.stepHeaderTopRow}>
-          <View style={styles.stepCountPill}>
-            <Text style={styles.stepCountText}>Step {step + 1} of {totalSteps}</Text>
-          </View>
-          <View style={styles.stepFlowPill}>
-            <Text style={styles.stepFlowText}>{isTherapistFlow ? 'Therapist Setup' : 'Client Setup'}</Text>
-          </View>
-        </View>
-        <Text style={styles.stepHeaderTitle}>{currentStepLabel}</Text>
-        <Text style={styles.stepHeaderSubtitle}>{currentStepHint}</Text>
-      </View>
-
       <View style={styles.progressContainer}>
-        {Array.from({ length: totalSteps }).map((_, index) => (
-          <View
-            key={index}
-            style={[styles.progressDot, index <= step ? styles.progressActive : styles.progressInactive]}
-          />
-        ))}
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: progressPercent }]} />
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
@@ -786,70 +751,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.bg.primary,
   },
-  stepHeaderCard: {
-    marginHorizontal: Spacing.xl,
-    marginTop: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.bg.secondary,
-    borderWidth: 1,
-    borderColor: Colors.stroke.subtle,
-    gap: 2,
-  },
-  stepHeaderTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  stepCountPill: {
-    backgroundColor: Colors.accent.soft,
-    borderRadius: Radius.pill,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 3,
-  },
-  stepCountText: {
-    ...Typography.micro,
-    color: Colors.accent.dark,
-  },
-  stepFlowPill: {
-    backgroundColor: Colors.bg.primary,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-    borderColor: Colors.stroke.subtle,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 3,
-  },
-  stepFlowText: {
-    ...Typography.micro,
-    color: Colors.text.secondary,
-  },
-  stepHeaderTitle: {
-    ...Typography.bodySemibold,
-    color: Colors.text.primary,
-  },
-  stepHeaderSubtitle: {
-    ...Typography.caption,
-    color: Colors.text.secondary,
-  },
   progressContainer: {
-    flexDirection: 'row',
-    gap: Spacing.xs,
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.sm,
+    paddingTop: Spacing.md,
     paddingBottom: Spacing.sm,
   },
-  progressDot: {
+  progressTrack: {
     height: 6,
-    borderRadius: 4,
-    flex: 1,
-  },
-  progressActive: {
-    backgroundColor: Colors.accent.primary,
-  },
-  progressInactive: {
+    borderRadius: Radius.pill,
     backgroundColor: Colors.ui.divider,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: Colors.accent.primary,
   },
   scrollContent: {
     paddingHorizontal: Spacing.xl,

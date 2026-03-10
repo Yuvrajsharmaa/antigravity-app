@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Switch } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Switch, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
@@ -66,72 +66,81 @@ export const ProfileScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <Text style={styles.screenTitle}>Profile</Text>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.screenTitle}>Profile</Text>
 
-      {/* User header */}
-      <View style={styles.userHeader}>
-        <Avatar
-          uri={profile?.avatar_url}
-          name={profile?.display_name || profile?.first_name || undefined}
-          size={72}
-        />
-        <Text style={styles.userName}>{profile?.display_name || profile?.first_name || 'User'}</Text>
-        <Text style={styles.userEmail}>{profile?.email || 'Email not set'}</Text>
-      </View>
-
-      {/* Settings */}
-      <Card style={styles.settingsCard}>
-        {settingsItems.map((item, i) => (
-          <TouchableOpacity key={item.label} style={styles.settingRow} onPress={item.onPress}>
-            <Ionicons name={item.icon as any} size={20} color={Colors.text.secondary} />
-            <Text style={styles.settingLabel}>{item.label}</Text>
-            <Ionicons name="chevron-forward" size={16} color={Colors.text.tertiary} />
-          </TouchableOpacity>
-        ))}
-        {/* Therapist Mode Toggle */}
-        <View style={styles.settingRow}>
-          <Ionicons name="medical-outline" size={20} color={Colors.accent.primary} />
-          <Text style={styles.settingLabel}>Therapist Mode</Text>
-          <Switch
-            value={isTherapistMode}
-            onValueChange={toggleTherapistMode}
-            trackColor={{ false: Colors.stroke.medium, true: Colors.accent.primary }}
+        {/* User header */}
+        <View style={styles.userHeader}>
+          <Avatar
+            uri={profile?.avatar_url}
+            name={profile?.display_name || profile?.first_name || undefined}
+            size={72}
           />
+          <Text style={styles.userName}>{profile?.display_name || profile?.first_name || 'User'}</Text>
+          <Text style={styles.userEmail}>{profile?.email || 'Email not set'}</Text>
         </View>
-      </Card>
 
-      {/* Legal */}
-      <Card style={styles.settingsCard}>
-        {legalItems.map((item) => (
-          <TouchableOpacity key={item.label} style={styles.settingRow} onPress={item.onPress}>
-            <Ionicons name={item.icon as any} size={20} color={Colors.text.secondary} />
-            <Text style={styles.settingLabel}>{item.label}</Text>
-            <Ionicons name="chevron-forward" size={16} color={Colors.text.tertiary} />
-          </TouchableOpacity>
-        ))}
-      </Card>
+        {/* Settings */}
+        <Card style={styles.settingsCard}>
+          {settingsItems.map((item) => (
+            <TouchableOpacity key={item.label} style={styles.settingRow} onPress={item.onPress}>
+              <Ionicons name={item.icon as any} size={20} color={Colors.text.secondary} />
+              <Text style={styles.settingLabel}>{item.label}</Text>
+              <Ionicons name="chevron-forward" size={16} color={Colors.text.tertiary} />
+            </TouchableOpacity>
+          ))}
+          {/* Therapist Mode Toggle */}
+          <View style={styles.settingRow}>
+            <Ionicons name="medical-outline" size={20} color={Colors.accent.primary} />
+            <Text style={styles.settingLabel}>Therapist Mode</Text>
+            <Switch
+              value={isTherapistMode}
+              onValueChange={toggleTherapistMode}
+              trackColor={{ false: Colors.stroke.medium, true: Colors.accent.primary }}
+            />
+          </View>
+        </Card>
 
-      {/* Emergency notice */}
-      <View style={styles.emergencyCard}>
-        <Ionicons name="warning-outline" size={16} color={Colors.status.warning} />
-        <Text style={styles.emergencyText}>
-          This app is not for emergencies. If you are in crisis, please contact your local emergency services.
-        </Text>
-      </View>
+        {/* Legal */}
+        <Card style={styles.settingsCard}>
+          {legalItems.map((item) => (
+            <TouchableOpacity key={item.label} style={styles.settingRow} onPress={item.onPress}>
+              <Ionicons name={item.icon as any} size={20} color={Colors.text.secondary} />
+              <Text style={styles.settingLabel}>{item.label}</Text>
+              <Ionicons name="chevron-forward" size={16} color={Colors.text.tertiary} />
+            </TouchableOpacity>
+          ))}
+        </Card>
 
-      {/* Sign out */}
-      <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
-        <Ionicons name="log-out-outline" size={20} color={Colors.status.danger} />
-        <Text style={styles.signOutText}>Sign out</Text>
-      </TouchableOpacity>
+        {/* Emergency notice */}
+        <View style={styles.emergencyCard}>
+          <Ionicons name="warning-outline" size={16} color={Colors.status.warning} />
+          <Text style={styles.emergencyText}>
+            This app is not for emergencies. If you are in crisis, please contact your local emergency services.
+          </Text>
+        </View>
 
-      <Text style={styles.version}>Care Space v1.1.0</Text>
+        {/* Sign out */}
+        <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
+          <Ionicons name="log-out-outline" size={20} color={Colors.status.danger} />
+          <Text style={styles.signOutText}>Sign out</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.version}>Care Space v1.1.0</Text>
+      </ScrollView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.bg.primary },
+  scrollContent: {
+    paddingBottom: Spacing.xxxxl,
+  },
   screenTitle: {
     ...Typography.title1,
     color: Colors.text.primary,
