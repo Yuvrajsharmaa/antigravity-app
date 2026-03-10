@@ -158,7 +158,7 @@ export const OnboardingScreen: React.FC = () => {
             <Card style={styles.disclaimerCard}>
               <Ionicons name="information-circle-outline" size={20} color={Colors.accent.primary} />
               <Text style={styles.disclaimerText}>
-                Antigravity connects you with qualified psychologists. This is not a substitute for emergency services or psychiatric treatment.
+                Care Space connects you with qualified psychologists. This is not a substitute for emergency services or psychiatric treatment.
               </Text>
             </Card>
 
