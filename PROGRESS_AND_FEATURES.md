@@ -41,6 +41,38 @@ Build **"Care Space"**, a comprehensive psychological consultation platform wher
 
 ## 📈 Recent Updates Log (Changelog)
 
+- **[Codex AGENT] - March 10, 2026 (Session Experience + Adaptive Nudges + Role Onboarding Sprint)**
+  - Added migration `supabase/migrations/20260310211000_session_journey_nudges.sql` and synced canonical schema (`supabase/schema.sql`) to:
+    - Extend `user_preferences` with `wellbeing_reminders_enabled`, `wellbeing_reminder_time`, `quiet_hours_start`, `quiet_hours_end`.
+    - Create `care_nudge_events` table for therapist-visible automated/manual nudge trail.
+    - Add RLS policies for client/therapist read/insert access on `care_nudge_events`.
+    - Add realtime publication support for `care_nudge_events`.
+  - Added shared behavior utilities:
+    - `src/core/utils/careRisk.ts` with standardized risk assessment (`high`/`medium`/`stable`) and sorting priority.
+    - `src/core/utils/wellbeingNotifications.ts` with local notification init, permissions, adaptive reminder scheduling, quiet-hours handling, and supportive nudge trigger APIs.
+  - Integrated adaptive local reminders (Expo Notifications):
+    - Added `expo-notifications` dependency.
+    - App boot notification init in `App.tsx`.
+    - Auth-level best-effort reminder refresh in `AuthContext`.
+    - Post-check-in reminder rescheduling and high-risk supportive local nudge firing in `DailyCheckInModal`.
+    - Notification preferences screen now persists wellbeing reminder toggles/time/quiet-hours to Supabase and re-schedules/cancels reminders interactively.
+  - Delivered role-aware pre/post session journey:
+    - Added `SessionPrepScreen.tsx` (client + therapist prep modules, device checks, join window countdown, therapist risk snapshot).
+    - Added `PostSessionReflectionScreen.tsx` (client reflection logging + therapist follow-up quick actions).
+    - Updated `AppNavigator.tsx` with `SessionPrep` and `PostSessionReflection` routes.
+    - Updated `SessionsScreen.tsx` with `Session Prep` action and richer session payloads.
+    - Updated `VideoCallScreen.tsx` end-of-call flow to route users into post-session follow-up/reflection.
+    - Added upcoming-session prep/join entry card on `HomeScreen.tsx`.
+  - Upgraded therapist dashboard triage and follow-up:
+    - `TherapistDashboardScreen.tsx` now uses shared CareScore risk logic instead of ad-hoc checks.
+    - Added risk badges (`High`/`Medium`/`Stable`), auto-nudge indicators from `care_nudge_events`, and risk-priority sorting.
+    - Nudge send action now pre-fills context based on current risk reason.
+    - Upcoming session cards now include `Session Prep` and role-aware join flow payloads.
+  - Rebuilt onboarding into role-specific interactive journeys:
+    - `OnboardingScreen.tsx` now has a 6-step client flow (welcome, identity, goals, preferences, reminder preferences, safety).
+    - Added 5-step therapist flow (welcome, profile intro, expertise/languages, practice style, compliance).
+    - Added animated step transitions, expanded contextual guidance, and onboarding-time reminder setup logic for clients.
+
 - **[Codex AGENT] - March 10, 2026 (CareScore + App Interactivity Sprint)**
   - Added idempotent migration SQL at `supabase/migrations/20260310_care_score_and_client_metrics.sql` to:
     - Create `client_metrics` if missing.

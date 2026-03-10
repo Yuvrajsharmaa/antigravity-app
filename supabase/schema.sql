@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS public.user_preferences (
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE UNIQUE NOT NULL,
   intent_tags TEXT[] DEFAULT '{}',
   session_preference TEXT DEFAULT 'both' CHECK (session_preference IN ('chat', 'video', 'both')),
+  wellbeing_reminders_enabled BOOLEAN DEFAULT TRUE,
+  wellbeing_reminder_time TIME DEFAULT '19:00:00',
+  quiet_hours_start TIME DEFAULT '21:00:00',
+  quiet_hours_end TIME DEFAULT '08:00:00',
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -132,6 +136,18 @@ CREATE TABLE IF NOT EXISTS public.client_metrics (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- 11. care_nudge_events
+CREATE TABLE IF NOT EXISTS public.care_nudge_events (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  therapist_id UUID REFERENCES public.therapists(id) ON DELETE CASCADE,
+  trigger_type TEXT NOT NULL DEFAULT 'care_score_high_risk',
+  risk_level TEXT NOT NULL CHECK (risk_level IN ('high', 'medium', 'stable')),
+  source TEXT NOT NULL DEFAULT 'system_auto' CHECK (source IN ('system_auto', 'therapist_manual')),
+  message_preview TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- ============================================
 -- Enable Row Level Security
 -- ============================================
@@ -145,6 +161,7 @@ ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.crisis_flags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.client_metrics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.care_nudge_events ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- RLS Policies
@@ -200,12 +217,19 @@ CREATE POLICY "metrics_select_therapist" ON public.client_metrics FOR SELECT USI
   EXISTS (SELECT 1 FROM public.conversations c WHERE c.user_id = client_metrics.user_id AND c.therapist_id = auth.uid())
 );
 
+-- Care nudge events: own + therapist visibility
+CREATE POLICY "nudge_events_select_own" ON public.care_nudge_events FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "nudge_events_insert_own" ON public.care_nudge_events FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "nudge_events_select_therapist" ON public.care_nudge_events FOR SELECT USING (auth.uid() = therapist_id);
+CREATE POLICY "nudge_events_insert_therapist" ON public.care_nudge_events FOR INSERT WITH CHECK (auth.uid() = therapist_id);
+
 -- ============================================
 -- Enable Realtime on messages
 -- ============================================
 -- ============================================
 ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.client_metrics;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.care_nudge_events;
 
 -- ============================================
 -- Seed Data: Demo Therapists

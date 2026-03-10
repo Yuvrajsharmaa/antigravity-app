@@ -17,6 +17,8 @@ import { SlotSelectionScreen } from '../features/booking/SlotSelectionScreen';
 import { BookingConfirmationScreen } from '../features/booking/BookingConfirmationScreen';
 import { ClientDetailScreen } from '../features/therapist-dashboard/ClientDetailScreen';
 import { SessionsScreen } from '../features/sessions/SessionsScreen';
+import { SessionPrepScreen } from '../features/sessions/SessionPrepScreen';
+import { PostSessionReflectionScreen } from '../features/sessions/PostSessionReflectionScreen';
 import { MessagesListScreen } from '../features/messages/MessagesListScreen';
 import { ChatScreen } from '../features/messages/ChatScreen';
 import { VideoCallScreen } from '../features/video/VideoCallScreen';
@@ -136,7 +138,9 @@ export const AppNavigator: React.FC = () => {
         ) : (
           <Stack.Group>
             <Stack.Screen name="Main" component={MainTabs} />
+            <Stack.Screen name="SessionPrep" component={SessionPrepScreen} />
             <Stack.Screen name="VideoCall" component={VideoCallScreen} />
+            <Stack.Screen name="PostSessionReflection" component={PostSessionReflectionScreen} />
           </Stack.Group>
         )}
       </Stack.Navigator>
