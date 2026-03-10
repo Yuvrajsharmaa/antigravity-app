@@ -77,11 +77,17 @@ const MainTabs = () => (
         marginTop: -2,
       },
       tabBarStyle: {
-        backgroundColor: Colors.bg.secondary,
+        backgroundColor: Colors.bg.primary,
         borderTopColor: Colors.stroke.subtle,
         borderTopWidth: 1,
-        paddingTop: 8,
-        height: Platform.OS === 'ios' ? 88 : 64,
+        paddingTop: Platform.OS === 'android' ? 8 : 4,
+        paddingBottom: Platform.OS === 'android' ? 8 : 0,
+        height: Platform.OS === 'android' ? 64 : undefined,
+        elevation: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
       },
     })}
   >

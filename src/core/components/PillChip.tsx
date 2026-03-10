@@ -38,6 +38,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     borderRadius: Radius.pill,
     borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 36,
   },
   selected: {
     backgroundColor: Colors.accent.primary,
