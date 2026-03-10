@@ -20,12 +20,12 @@ import {
 import { supabase } from '../../services/supabase';
 
 const CLIENT_INTENTS = [
-  'Anxiety / Stress',
-  'Feeling low / Lonely',
+  'I feel anxious or stressed',
+  'I feel low or emotionally heavy',
   'Relationship issues',
-  'Work / Career confusion',
-  'Just need someone to talk to',
-  'Sleep and routine',
+  'Work or career stress',
+  'I feel lonely',
+  'I just need someone to talk to',
 ];
 
 const THERAPIST_SPECIALTIES = [
@@ -40,12 +40,57 @@ const THERAPIST_SPECIALTIES = [
 
 const LANGUAGE_OPTIONS = ['English', 'Hindi', 'Both'];
 const SESSION_PREF_OPTIONS = ['Chat', 'Video', 'Both'];
+const GENDER_PREF_OPTIONS = [
+  { label: 'No preference', value: 'no_preference' },
+  { label: 'Female', value: 'female' },
+  { label: 'Male', value: 'male' },
+  { label: 'Non-binary', value: 'non_binary' },
+] as const;
+const TIME_PREF_OPTIONS = [
+  { label: 'Morning', value: 'morning' },
+  { label: 'Afternoon', value: 'afternoon' },
+  { label: 'Evening', value: 'evening' },
+  { label: 'Flexible', value: 'flexible' },
+] as const;
+const CARE_STYLE_OPTIONS = ['Gentle', 'Direct', 'Structured', 'Reflective'];
+const REFLECTION_MOODS = ['Calm', 'Low', 'Anxious', 'Overwhelmed', 'Numb', 'Hopeful'];
+const JOURNAL_SHARE_OPTIONS = [
+  { label: 'Summary only', value: 'summary' },
+  { label: 'Only when I choose', value: 'entry_by_entry' },
+  { label: 'Share all', value: 'all' },
+  { label: 'Do not share', value: 'none' },
+] as const;
 const REMINDER_TIMES = ['09:00:00', '14:00:00', '19:00:00'];
 const QUIET_START_OPTIONS = ['20:00:00', '21:00:00', '22:00:00'];
 const QUIET_END_OPTIONS = ['07:00:00', '08:00:00', '09:00:00'];
 const THERAPIST_STYLE_OPTIONS = ['Warm and conversational', 'Structured and goal-focused', 'Mindfulness-led'];
 
-const asLabel = (value: string) => value.slice(0, 5);
+const asTimeLabel = (value: string) => value.slice(0, 5);
+
+const normalizeIntentTag = (value: string) => value
+  .toLowerCase()
+  .replace(/[^a-z0-9\s-]/g, '')
+  .replace(/\s+/g, '-');
+
+const calculateCareScore = (mood: string, stressLevel: number, sleepHours: number, note: string) => {
+  let score = 50;
+
+  if (mood === 'Calm' || mood === 'Hopeful') score += 16;
+  if (mood === 'Low') score -= 10;
+  if (mood === 'Anxious') score -= 12;
+  if (mood === 'Overwhelmed') score -= 16;
+  if (mood === 'Numb') score -= 8;
+
+  score += (3 - stressLevel) * 5;
+
+  if (sleepHours >= 7 && sleepHours <= 9) score += 14;
+  else if (sleepHours >= 5) score += 4;
+  else score -= 8;
+
+  if (note.trim().length > 12) score += 3;
+
+  return Math.max(0, Math.min(100, score));
+};
 
 export const OnboardingScreen: React.FC = () => {
   const { user, profile, refreshProfile } = useAuth();
@@ -61,10 +106,19 @@ export const OnboardingScreen: React.FC = () => {
   const [selectedIntents, setSelectedIntents] = useState<string[]>([]);
   const [language, setLanguage] = useState('English');
   const [sessionPref, setSessionPref] = useState('Both');
+  const [genderPreference, setGenderPreference] = useState<(typeof GENDER_PREF_OPTIONS)[number]['value']>('no_preference');
+  const [timePreference, setTimePreference] = useState<(typeof TIME_PREF_OPTIONS)[number]['value']>('evening');
+  const [careStylePreference, setCareStylePreference] = useState('Gentle');
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [reminderTime, setReminderTime] = useState('19:00:00');
   const [quietStart, setQuietStart] = useState('21:00:00');
   const [quietEnd, setQuietEnd] = useState('08:00:00');
+  const [journalEnabled, setJournalEnabled] = useState(false);
+  const [journalSharing, setJournalSharing] = useState<(typeof JOURNAL_SHARE_OPTIONS)[number]['value']>('summary');
+  const [checkInMood, setCheckInMood] = useState<string | null>(null);
+  const [checkInStress, setCheckInStress] = useState(3);
+  const [checkInSleep, setCheckInSleep] = useState('7');
+  const [checkInNote, setCheckInNote] = useState('');
   const [agreedTerms, setAgreedTerms] = useState(false);
   const [agreedNotEmergency, setAgreedNotEmergency] = useState(false);
 
@@ -77,21 +131,23 @@ export const OnboardingScreen: React.FC = () => {
 
   useEffect(() => {
     Animated.sequence([
-      Animated.timing(fade, { toValue: 0, duration: 120, useNativeDriver: true }),
-      Animated.timing(fade, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.timing(fade, { toValue: 0, duration: 110, useNativeDriver: true }),
+      Animated.timing(fade, { toValue: 1, duration: 180, useNativeDriver: true }),
     ]).start();
   }, [fade, step]);
 
   const welcomeTitle = useMemo(() => {
     if (isTherapistFlow) return 'Welcome to your Care Space practice';
-    return 'Welcome to Care Space';
+    return 'Talk to a qualified psychologist, without awkward admin';
   }, [isTherapistFlow]);
 
-  const toggleTag = (value: string, list: string[], setter: (value: string[]) => void) => {
+  const toggleTag = (value: string, list: string[], setter: (value: string[]) => void, limit?: number) => {
     if (list.includes(value)) {
       setter(list.filter((item) => item !== value));
       return;
     }
+
+    if (limit && list.length >= limit) return;
     setter([...list, value]);
   };
 
@@ -131,6 +187,22 @@ export const OnboardingScreen: React.FC = () => {
     }
   };
 
+  const saveInitialCheckInIfProvided = async (userId: string) => {
+    const sleepNum = Number.parseFloat(checkInSleep.replace(',', '.'));
+    if (!checkInMood || Number.isNaN(sleepNum) || sleepNum <= 0 || sleepNum > 24) return;
+
+    const score = calculateCareScore(checkInMood, checkInStress, sleepNum, checkInNote);
+
+    await supabase.from('client_metrics').insert({
+      user_id: userId,
+      mood: checkInMood,
+      stress_level: checkInStress,
+      sleep_hours: sleepNum,
+      journal_entry: checkInNote.trim() || null,
+      care_score_snapshot: score,
+    });
+  };
+
   const completeOnboarding = async () => {
     if (!user) return;
 
@@ -143,7 +215,7 @@ export const OnboardingScreen: React.FC = () => {
         .update({
           first_name: trimmedName || profile?.first_name || null,
           display_name: trimmedName || profile?.display_name || null,
-          language,
+          language: isTherapistFlow ? profile?.language || 'English' : language,
           onboarding_completed: true,
           updated_at: new Date().toISOString(),
         })
@@ -153,12 +225,19 @@ export const OnboardingScreen: React.FC = () => {
 
       const preferencePayload = {
         user_id: user.id,
-        intent_tags: isTherapistFlow ? selectedSpecialties : selectedIntents,
+        intent_tags: isTherapistFlow
+          ? selectedSpecialties
+          : selectedIntents.map((item) => normalizeIntentTag(item)),
         session_preference: sessionPref.toLowerCase() as 'chat' | 'video' | 'both',
         wellbeing_reminders_enabled: remindersEnabled,
         wellbeing_reminder_time: reminderTime,
         quiet_hours_start: quietStart,
         quiet_hours_end: quietEnd,
+        therapist_gender_preference: genderPreference,
+        time_preference: timePreference,
+        care_style_preference: careStylePreference,
+        journal_enabled: journalEnabled,
+        journal_sharing: journalEnabled ? journalSharing : 'none',
       };
 
       const { error: prefError } = await supabase
@@ -184,9 +263,13 @@ export const OnboardingScreen: React.FC = () => {
           );
 
         if (therapistError) throw therapistError;
-      } else if (remindersEnabled) {
-        await ensureNotificationPermission();
-        await scheduleAdaptiveWellbeingReminders(user.id);
+      } else {
+        await saveInitialCheckInIfProvided(user.id);
+
+        if (remindersEnabled) {
+          await ensureNotificationPermission();
+          await scheduleAdaptiveWellbeingReminders(user.id);
+        }
       }
 
       await refreshProfile();
@@ -205,9 +288,8 @@ export const OnboardingScreen: React.FC = () => {
           <Card style={styles.heroCard}>
             <Ionicons name="leaf-outline" size={28} color={Colors.accent.primary} />
             <Text style={styles.heroTitle}>{welcomeTitle}</Text>
-            <Text style={styles.heroSubtitle}>
-              Your plan will gently adapt to your mood, session rhythm, and CareScore trends.
-            </Text>
+            <Text style={styles.heroSubtitle}>Private. Structured. No long-term commitment needed.</Text>
+            <Text style={styles.heroEmergency}>This is not for emergencies.</Text>
           </Card>
         );
       case 1:
@@ -229,15 +311,15 @@ export const OnboardingScreen: React.FC = () => {
       case 2:
         return (
           <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>What brings you here?</Text>
-            <Text style={styles.stepSubtitle}>Select what feels most relevant right now.</Text>
+            <Text style={styles.stepTitle}>What brings you here today?</Text>
+            <Text style={styles.stepSubtitle}>Pick up to 2. This helps us match without forcing labels.</Text>
             <View style={styles.wrapRow}>
               {CLIENT_INTENTS.map((intent) => (
                 <PillChip
                   key={intent}
                   label={intent}
                   selected={selectedIntents.includes(intent)}
-                  onPress={() => toggleTag(intent, selectedIntents, setSelectedIntents)}
+                  onPress={() => toggleTag(intent, selectedIntents, setSelectedIntents, 2)}
                 />
               ))}
             </View>
@@ -247,6 +329,7 @@ export const OnboardingScreen: React.FC = () => {
         return (
           <View style={styles.stepContent}>
             <Text style={styles.stepTitle}>Preferences</Text>
+
             <Text style={styles.fieldLabel}>Language</Text>
             <View style={styles.row}>
               {LANGUAGE_OPTIONS.map((item) => (
@@ -260,55 +343,160 @@ export const OnboardingScreen: React.FC = () => {
                 <PillChip key={item} label={item} selected={sessionPref === item} onPress={() => setSessionPref(item)} />
               ))}
             </View>
+
+            <Text style={styles.fieldLabel}>Therapist gender preference (optional)</Text>
+            <View style={styles.wrapRow}>
+              {GENDER_PREF_OPTIONS.map((item) => (
+                <PillChip
+                  key={item.value}
+                  label={item.label}
+                  selected={genderPreference === item.value}
+                  onPress={() => setGenderPreference(item.value)}
+                />
+              ))}
+            </View>
+
+            <Text style={styles.fieldLabel}>Preferred time</Text>
+            <View style={styles.wrapRow}>
+              {TIME_PREF_OPTIONS.map((item) => (
+                <PillChip
+                  key={item.value}
+                  label={item.label}
+                  selected={timePreference === item.value}
+                  onPress={() => setTimePreference(item.value)}
+                />
+              ))}
+            </View>
+
+            <Text style={styles.fieldLabel}>Care style</Text>
+            <View style={styles.wrapRow}>
+              {CARE_STYLE_OPTIONS.map((item) => (
+                <PillChip
+                  key={item}
+                  label={item}
+                  selected={careStylePreference === item}
+                  onPress={() => setCareStylePreference(item)}
+                />
+              ))}
+            </View>
           </View>
         );
       case 4:
         return (
           <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Reminder preferences</Text>
-            <Text style={styles.stepSubtitle}>Gentle nudges only, never during quiet hours.</Text>
+            <Text style={styles.stepTitle}>Quick check-in (light and optional)</Text>
+            <Text style={styles.stepSubtitle}>This helps your first session start with less repetition.</Text>
 
+            <Text style={styles.fieldLabel}>How are you feeling today?</Text>
+            <View style={styles.wrapRow}>
+              {REFLECTION_MOODS.map((item) => (
+                <PillChip
+                  key={item}
+                  label={item}
+                  selected={checkInMood === item}
+                  onPress={() => setCheckInMood(item)}
+                />
+              ))}
+            </View>
+
+            <Text style={styles.fieldLabel}>Stress today (1-5)</Text>
+            <View style={styles.row}>
+              {[1, 2, 3, 4, 5].map((item) => (
+                <PillChip
+                  key={item}
+                  label={`${item}`}
+                  selected={checkInStress === item}
+                  onPress={() => setCheckInStress(item)}
+                />
+              ))}
+            </View>
+
+            <Text style={styles.fieldLabel}>Hours of sleep</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 7"
+              placeholderTextColor={Colors.text.tertiary}
+              keyboardType="numeric"
+              value={checkInSleep}
+              onChangeText={setCheckInSleep}
+            />
+
+            <Text style={styles.fieldLabel}>Anything to share before your first session? (optional)</Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              placeholder="Optional note"
+              placeholderTextColor={Colors.text.tertiary}
+              multiline
+              value={checkInNote}
+              onChangeText={setCheckInNote}
+            />
+
+            <Text style={styles.fieldLabel}>Journaling</Text>
+            <CheckBox
+              checked={journalEnabled}
+              onPress={() => setJournalEnabled((prev) => !prev)}
+              label="Enable mood, stress, sleep, and note journaling"
+            />
+
+            {journalEnabled && (
+              <>
+                <Text style={styles.fieldLabel}>Therapist visibility</Text>
+                <View style={styles.wrapRow}>
+                  {JOURNAL_SHARE_OPTIONS.map((item) => (
+                    <PillChip
+                      key={item.value}
+                      label={item.label}
+                      selected={journalSharing === item.value}
+                      onPress={() => setJournalSharing(item.value)}
+                    />
+                  ))}
+                </View>
+              </>
+            )}
+
+            <Text style={styles.fieldLabel}>Reminders (non-pushy)</Text>
             <CheckBox
               checked={remindersEnabled}
               onPress={() => setRemindersEnabled((prev) => !prev)}
-              label="Enable wellbeing reminders"
+              label="Enable gentle mood check-in reminders"
             />
 
-            <Text style={styles.fieldLabel}>Preferred reminder time</Text>
-            <View style={styles.row}>
-              {REMINDER_TIMES.map((item) => (
-                <PillChip
-                  key={item}
-                  label={asLabel(item)}
-                  selected={reminderTime === item}
-                  onPress={() => setReminderTime(item)}
-                />
-              ))}
-            </View>
-
-            <Text style={styles.fieldLabel}>Quiet hours start</Text>
-            <View style={styles.row}>
-              {QUIET_START_OPTIONS.map((item) => (
-                <PillChip
-                  key={item}
-                  label={asLabel(item)}
-                  selected={quietStart === item}
-                  onPress={() => setQuietStart(item)}
-                />
-              ))}
-            </View>
-
-            <Text style={styles.fieldLabel}>Quiet hours end</Text>
-            <View style={styles.row}>
-              {QUIET_END_OPTIONS.map((item) => (
-                <PillChip
-                  key={item}
-                  label={asLabel(item)}
-                  selected={quietEnd === item}
-                  onPress={() => setQuietEnd(item)}
-                />
-              ))}
-            </View>
+            {remindersEnabled && (
+              <>
+                <View style={styles.row}>
+                  {REMINDER_TIMES.map((item) => (
+                    <PillChip
+                      key={item}
+                      label={asTimeLabel(item)}
+                      selected={reminderTime === item}
+                      onPress={() => setReminderTime(item)}
+                    />
+                  ))}
+                </View>
+                <Text style={styles.fieldLabel}>Quiet hours start</Text>
+                <View style={styles.row}>
+                  {QUIET_START_OPTIONS.map((item) => (
+                    <PillChip
+                      key={item}
+                      label={asTimeLabel(item)}
+                      selected={quietStart === item}
+                      onPress={() => setQuietStart(item)}
+                    />
+                  ))}
+                </View>
+                <Text style={styles.fieldLabel}>Quiet hours end</Text>
+                <View style={styles.row}>
+                  {QUIET_END_OPTIONS.map((item) => (
+                    <PillChip
+                      key={item}
+                      label={asTimeLabel(item)}
+                      selected={quietEnd === item}
+                      onPress={() => setQuietEnd(item)}
+                    />
+                  ))}
+                </View>
+              </>
+            )}
           </View>
         );
       case 5:
@@ -318,7 +506,7 @@ export const OnboardingScreen: React.FC = () => {
             <Card style={styles.infoCard}>
               <Ionicons name="information-circle-outline" size={18} color={Colors.accent.primary} />
               <Text style={styles.infoText}>
-                Care Space is for guided psychological support and is not a substitute for emergency response.
+                Care Space is for psychological support and is not a substitute for emergency response.
               </Text>
             </Card>
 
@@ -347,7 +535,7 @@ export const OnboardingScreen: React.FC = () => {
             <Ionicons name="sparkles-outline" size={28} color={Colors.accent.primary} />
             <Text style={styles.heroTitle}>{welcomeTitle}</Text>
             <Text style={styles.heroSubtitle}>
-              Set up your profile so clients get a warm, clear, and trustworthy first impression.
+              Set up your profile so clients get a warm and trustworthy first impression.
             </Text>
           </Card>
         );
@@ -457,7 +645,7 @@ export const OnboardingScreen: React.FC = () => {
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <Animated.View style={{ opacity: fade }}>
           {isTherapistFlow ? renderTherapistStep() : renderClientStep()}
         </Animated.View>
@@ -570,6 +758,11 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
     lineHeight: 22,
   },
+  heroEmergency: {
+    ...Typography.captionEmphasis,
+    color: Colors.status.warning,
+    marginTop: 2,
+  },
   stepContent: {
     marginTop: Spacing.md,
     gap: Spacing.sm,
@@ -592,10 +785,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
   },
+  textArea: {
+    minHeight: 84,
+    textAlignVertical: 'top',
+  },
   fieldLabel: {
     ...Typography.captionEmphasis,
     color: Colors.text.secondary,
-    marginTop: Spacing.sm,
+    marginTop: Spacing.xs,
   },
   row: {
     flexDirection: 'row',

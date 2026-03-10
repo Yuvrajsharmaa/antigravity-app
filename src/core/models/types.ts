@@ -20,6 +20,11 @@ export interface UserPreferences {
   wellbeing_reminder_time: string;
   quiet_hours_start: string;
   quiet_hours_end: string;
+  therapist_gender_preference?: 'no_preference' | 'female' | 'male' | 'non_binary';
+  time_preference?: 'morning' | 'afternoon' | 'evening' | 'flexible';
+  care_style_preference?: string | null;
+  journal_enabled?: boolean;
+  journal_sharing?: 'none' | 'summary' | 'entry_by_entry' | 'all';
   created_at: string;
   updated_at: string;
 }
