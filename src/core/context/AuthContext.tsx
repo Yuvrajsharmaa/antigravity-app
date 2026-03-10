@@ -12,6 +12,8 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  isTherapistMode: boolean;
+  toggleTherapistMode: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -20,6 +22,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isTherapistMode, setIsTherapistMode] = useState(false);
 
   useEffect(() => {
     // Get initial session
@@ -111,6 +114,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const toggleTherapistMode = () => {
+    setIsTherapistMode(!isTherapistMode);
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -122,6 +129,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signIn,
         signOut,
         refreshProfile,
+        isTherapistMode,
+        toggleTherapistMode,
       }}
     >
       {children}

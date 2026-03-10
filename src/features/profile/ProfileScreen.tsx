@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
@@ -7,7 +7,7 @@ import { Avatar, Card } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 
 export const ProfileScreen: React.FC = () => {
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, isTherapistMode, toggleTherapistMode } = useAuth();
 
   const handleSignOut = () => {
     Alert.alert('Sign out', 'Are you sure you want to sign out?', [
@@ -53,6 +53,16 @@ export const ProfileScreen: React.FC = () => {
             <Ionicons name="chevron-forward" size={16} color={Colors.text.tertiary} />
           </TouchableOpacity>
         ))}
+        {/* Therapist Mode Toggle */}
+        <View style={styles.settingRow}>
+          <Ionicons name="medical-outline" size={20} color={Colors.accent.primary} />
+          <Text style={styles.settingLabel}>Therapist Mode</Text>
+          <Switch
+            value={isTherapistMode}
+            onValueChange={toggleTherapistMode}
+            trackColor={{ false: Colors.stroke.medium, true: Colors.accent.primary }}
+          />
+        </View>
       </Card>
 
       {/* Legal */}
