@@ -15,6 +15,7 @@ import { HomeScreen } from '../features/home/HomeScreen';
 import { TherapistProfileScreen } from '../features/therapist/TherapistProfileScreen';
 import { SlotSelectionScreen } from '../features/booking/SlotSelectionScreen';
 import { BookingConfirmationScreen } from '../features/booking/BookingConfirmationScreen';
+import { ClientDetailScreen } from '../features/therapist-dashboard/ClientDetailScreen';
 import { SessionsScreen } from '../features/sessions/SessionsScreen';
 import { MessagesListScreen } from '../features/messages/MessagesListScreen';
 import { ChatScreen } from '../features/messages/ChatScreen';
@@ -33,6 +34,7 @@ const HomeStackScreen = () => (
     <HomeStack.Screen name="TherapistProfile" component={TherapistProfileScreen} />
     <HomeStack.Screen name="SlotSelection" component={SlotSelectionScreen} />
     <HomeStack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} />
+    <HomeStack.Screen name="ClientDetail" component={ClientDetailScreen} />
   </HomeStack.Navigator>
 );
 

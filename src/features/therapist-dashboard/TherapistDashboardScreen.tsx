@@ -6,7 +6,7 @@ import { Colors, Typography, Spacing, Radius } from '../../core/theme';
 import { Avatar, Card, LoadingState } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 const DUMMY_CLIENTS_NEEDING_ATTENTION = [
   {
@@ -44,6 +44,7 @@ const DUMMY_UPCOMING_SESSIONS = [
 
 export const TherapistDashboardScreen: React.FC = () => {
   const { profile, user } = useAuth();
+  const navigation = useNavigation<any>();
   const [realClients, setRealClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -59,7 +60,42 @@ export const TherapistDashboardScreen: React.FC = () => {
         .eq('therapist_id', user.id);
       
       if (!error && data) {
-        setRealClients(data);
+        // Fetch recent metrics for these clients to determine alerts
+        const clientIds = data.map((c: any) => {
+          const u = Array.isArray(c.users) ? c.users[0] : c.users;
+          return u?.id;
+        }).filter(Boolean);
+
+        const { data: metrics } = await supabase
+          .from('client_metrics')
+          .select('user_id, stress_level, freud_score_snapshot, created_at')
+          .in('user_id', clientIds)
+          .order('created_at', { ascending: false });
+
+        const enrichedClients = data.map((conv: any) => {
+          const u = Array.isArray(conv.users) ? conv.users[0] : conv.users;
+          const latestMetric = metrics?.find(m => m.user_id === u?.id);
+          
+          let alertMsg = null;
+          let isHighAlert = false;
+          if (latestMetric) {
+            if (latestMetric.stress_level >= 4) {
+              alertMsg = 'High stress reported';
+              isHighAlert = true;
+            } else if (latestMetric.freud_score_snapshot < 50) {
+              alertMsg = 'Low mood/health score';
+              isHighAlert = true;
+            }
+          } else {
+            alertMsg = 'No logged metrics yet';
+          }
+
+          return { ...conv, alertMsg, isHighAlert };
+        });
+
+        // Sort so high alerts are at top
+        enrichedClients.sort((a: any, b: any) => (b.isHighAlert ? 1 : 0) - (a.isHighAlert ? 1 : 0));
+        setRealClients(enrichedClients);
       }
     } catch (err) {
       console.log(err);
@@ -158,14 +194,17 @@ export const TherapistDashboardScreen: React.FC = () => {
                 <Text style={styles.clientName}>{cName}</Text>
                 <Text style={styles.clientLastContact}>Last contact: Active</Text>
               </View>
-              <View style={styles.alertDot} />
+              {conv.isHighAlert && <View style={styles.alertDot} />}
             </View>
             <View style={styles.issueContainer}>
               <Ionicons name="warning-outline" size={16} color={Colors.status.warning} />
-              <Text style={styles.issueText}>Needs check-in</Text>
+              <Text style={styles.issueText}>{conv.alertMsg || 'Needs check-in'}</Text>
             </View>
             <View style={styles.actionButtons}>
-              <TouchableOpacity style={[styles.actionBtn, styles.actionBtnOutline]}>
+              <TouchableOpacity 
+                style={[styles.actionBtn, styles.actionBtnOutline]}
+                onPress={() => navigation.navigate('ClientDetail', { clientId: uProfile?.id, clientName: cName })}
+              >
                 <Ionicons name="reader-outline" size={18} color={Colors.text.primary} />
                 <Text style={styles.actionBtnTextOutline}>View Notes</Text>
               </TouchableOpacity>
