@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Button, Card } from '../../core/components';
@@ -170,7 +170,11 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
         <View style={{ width: 56 }} />
       </View>
 
-      <View style={styles.container}>
+      <ScrollView
+        style={styles.containerScroll}
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+      >
         {!isTherapistMode ? (
           <>
             <Card>
@@ -241,7 +245,7 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
             <Button title="Done" onPress={goToSessions} />
           </>
         )}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -266,7 +270,10 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: Spacing.xl,
     gap: Spacing.md,
-    paddingBottom: Spacing.xxxl,
+    paddingBottom: Spacing.xxxxl + 24,
+  },
+  containerScroll: {
+    flex: 1,
   },
   sectionTitle: {
     ...Typography.bodySemibold,
@@ -282,25 +289,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.stroke.medium,
     backgroundColor: Colors.bg.secondary,
-    borderRadius: Radius.pill,
+    borderRadius: Radius.lg,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
   },
   chipActive: {
     borderColor: Colors.accent.primary,
-    backgroundColor: Colors.accent.primary,
+    backgroundColor: Colors.accent.soft,
   },
   chipText: {
     ...Typography.body,
     color: Colors.text.secondary,
   },
   chipTextActive: {
-    color: Colors.text.inverse,
+    color: Colors.accent.dark,
   },
   input: {
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     backgroundColor: Colors.bg.secondary,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
@@ -318,7 +325,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: Spacing.xs,
     backgroundColor: Colors.accent.primary,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     paddingVertical: Spacing.sm,
   },
   actionBtnText: {
@@ -333,7 +340,7 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
     borderWidth: 1,
     borderColor: Colors.stroke.medium,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     paddingVertical: Spacing.sm,
     backgroundColor: Colors.bg.secondary,
   },

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Alert, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Button } from '../../core/components';
+import { Button, Card } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 
@@ -52,7 +52,8 @@ export const EditProfileScreen: React.FC<{ navigation: any }> = ({ navigation })
         <View style={{ width: 56 }} />
       </View>
 
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <Card style={styles.content}>
         <Text style={styles.label}>First name</Text>
         <TextInput
           style={styles.input}
@@ -81,7 +82,8 @@ export const EditProfileScreen: React.FC<{ navigation: any }> = ({ navigation })
         />
 
         <Button title="Save changes" onPress={saveProfile} loading={saving} size="lg" style={styles.saveBtn} />
-      </View>
+      </Card>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -104,8 +106,12 @@ const styles = StyleSheet.create({
     color: Colors.text.primary,
   },
   content: {
-    paddingHorizontal: Spacing.xl,
+    marginHorizontal: Spacing.xl,
     gap: Spacing.sm,
+    borderRadius: Radius.xl,
+  },
+  scrollContent: {
+    paddingBottom: Spacing.xxxxl + 24,
   },
   label: {
     ...Typography.captionEmphasis,
@@ -114,7 +120,7 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: Colors.bg.secondary,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
     paddingHorizontal: Spacing.md,

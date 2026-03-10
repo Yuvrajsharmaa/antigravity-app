@@ -93,15 +93,23 @@ const styles = StyleSheet.create({
   // Variants
   primaryContainer: {
     backgroundColor: Colors.accent.primary,
+    borderWidth: 1,
+    borderColor: Colors.accent.dark + '22',
   },
   secondaryContainer: {
     backgroundColor: Colors.accent.soft,
+    borderWidth: 1,
+    borderColor: Colors.accent.primary + '28',
   },
   ghostContainer: {
     backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
   },
   dangerContainer: {
     backgroundColor: Colors.status.danger,
+    borderWidth: 1,
+    borderColor: Colors.status.danger + '30',
   },
 
   // Sizes
@@ -111,11 +119,11 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
   },
   mdContainer: {
-    paddingVertical: Spacing.sm + 2,
+    paddingVertical: Spacing.sm + 1,
     paddingHorizontal: Spacing.lg,
   },
   lgContainer: {
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.md + 1,
     paddingHorizontal: Spacing.xl,
   },
 

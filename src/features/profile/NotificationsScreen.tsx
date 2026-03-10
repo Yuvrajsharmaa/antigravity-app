@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Switch } from 'react-native';
+import { View, Text, StyleSheet, Switch, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Colors, Typography, Spacing } from '../../core/theme';
 import { Button, Card, PillChip } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
@@ -30,6 +31,7 @@ const formatTime = (value: string) => value.slice(0, 5);
 
 export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
 
   const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_PREFS);
   const [loaded, setLoaded] = useState(false);
@@ -39,6 +41,7 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
   const [careBuddyEnabled, setCareBuddyEnabled] = useState(true);
   const [engagementMode, setEngagementMode] = useState<'gentle' | 'balanced' | 'high'>('balanced');
   const [nudgeSnoozeUntil, setNudgeSnoozeUntil] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadPrefs = async () => {
@@ -94,8 +97,8 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
       engagementMode: 'gentle' | 'balanced' | 'high';
       nudgeSnoozeUntil: string | null;
     }>,
-  ) => {
-    if (!user?.id) return;
+  ): Promise<boolean> => {
+    if (!user?.id) return false;
 
     const mergedPrefs = {
       wellbeingReminders: next.wellbeingReminders ?? prefs.wellbeingReminders,
@@ -107,7 +110,7 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
       nudgeSnoozeUntil: next.nudgeSnoozeUntil ?? nudgeSnoozeUntil,
     };
 
-    await supabase
+    const { error } = await supabase
       .from('user_preferences')
       .upsert(
         {
@@ -123,25 +126,37 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
         { onConflict: 'user_id' },
       );
 
+    if (error) {
+      const message = error.message || 'Could not save notification preferences.';
+      setSaveError(message);
+      Alert.alert('Save failed', message);
+      return false;
+    }
+    setSaveError(null);
+
     if (mergedPrefs.wellbeingReminders) {
       await scheduleAdaptiveWellbeingReminders(user.id);
     } else {
       await cancelWellbeingReminders(user.id);
     }
+
+    return true;
   };
 
   const applySnooze = async (hours: number) => {
     if (!user?.id) return;
     const until = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
     setNudgeSnoozeUntil(until);
-    await persistReminderPrefs({ nudgeSnoozeUntil: until });
+    const saved = await persistReminderPrefs({ nudgeSnoozeUntil: until });
+    if (!saved) return;
     await cancelWellbeingReminders(user.id);
   };
 
   const clearSnooze = async () => {
     if (!user?.id) return;
     setNudgeSnoozeUntil(null);
-    await persistReminderPrefs({ nudgeSnoozeUntil: null });
+    const saved = await persistReminderPrefs({ nudgeSnoozeUntil: null });
+    if (!saved) return;
     await scheduleAdaptiveWellbeingReminders(user.id);
   };
 
@@ -150,139 +165,148 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
     await persistLocalPrefs(next);
 
     if (key === 'wellbeingReminders') {
-      await persistReminderPrefs({ wellbeingReminders: value });
+      const saved = await persistReminderPrefs({ wellbeingReminders: value });
+      if (!saved) {
+        await persistLocalPrefs(prefs);
+      }
     }
   };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <View style={styles.header}>
-        <Button title="Back" variant="ghost" fullWidth={false} onPress={() => navigation.goBack()} />
-        <Text style={styles.title}>Notifications</Text>
-        <View style={{ width: 56 }} />
-      </View>
+      <ScrollView
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + Spacing.xxl }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <Button title="Back" variant="ghost" fullWidth={false} onPress={() => navigation.goBack()} />
+          <Text style={styles.title}>Notifications</Text>
+          <View style={{ width: 56 }} />
+        </View>
 
-      <Card style={styles.card}>
-        <ToggleRow
-          title="Session reminders"
-          subtitle="Get reminded before upcoming sessions"
-          value={prefs.sessionReminders}
-          onChange={(val) => update('sessionReminders', val)}
-          disabled={!loaded}
-        />
-
-        <ToggleRow
-          title="Message alerts"
-          subtitle="Get notified about new messages"
-          value={prefs.messageAlerts}
-          onChange={(val) => update('messageAlerts', val)}
-          disabled={!loaded}
-        />
-
-        <ToggleRow
-          title="Wellbeing nudges"
-          subtitle="Gentle check-in reminders for mood and CareScore"
-          value={prefs.wellbeingReminders}
-          onChange={(val) => update('wellbeingReminders', val)}
-          disabled={!loaded}
-          noBorder
-        />
-      </Card>
-
-      {prefs.wellbeingReminders && (
-        <Card style={styles.preferencesCard}>
-          <Text style={styles.buddyHint}>{careBuddyLine('reassure')}</Text>
+        <Card style={styles.card}>
+          {saveError ? <Text style={styles.saveErrorText}>{saveError}</Text> : null}
           <ToggleRow
-            title="Care Buddy personality"
-            subtitle="Friendly coaching copy in reminders and care prompts"
-            value={careBuddyEnabled}
-            onChange={async (val) => {
-              setCareBuddyEnabled(val);
-              await persistReminderPrefs({ careBuddyEnabled: val });
-            }}
-            noBorder
+            title="Session reminders"
+            subtitle="Get reminded before upcoming sessions"
+            value={prefs.sessionReminders}
+            onChange={(val) => update('sessionReminders', val)}
+            disabled={!loaded}
           />
 
-          <Text style={styles.prefLabel}>Engagement mode</Text>
-          <View style={styles.pillRow}>
-            {[
-              { label: 'Gentle', value: 'gentle' },
-              { label: 'Balanced', value: 'balanced' },
-              { label: 'High', value: 'high' },
-            ].map((mode) => (
-              <PillChip
-                key={mode.value}
-                label={mode.label}
-                selected={engagementMode === mode.value}
-                onPress={async () => {
-                  setEngagementMode(mode.value as 'gentle' | 'balanced' | 'high');
-                  await persistReminderPrefs({ engagementMode: mode.value as 'gentle' | 'balanced' | 'high' });
-                }}
-              />
-            ))}
-          </View>
+          <ToggleRow
+            title="Message alerts"
+            subtitle="Get notified about new messages"
+            value={prefs.messageAlerts}
+            onChange={(val) => update('messageAlerts', val)}
+            disabled={!loaded}
+          />
 
-          <Text style={styles.prefLabel}>Reminder time</Text>
-          <View style={styles.pillRow}>
-            {REMINDER_TIMES.map((item) => (
-              <PillChip
-                key={item}
-                label={formatTime(item)}
-                selected={reminderTime === item}
-                onPress={async () => {
-                  setReminderTime(item);
-                  await persistReminderPrefs({ reminderTime: item });
-                }}
-              />
-            ))}
-          </View>
-
-          <Text style={styles.prefLabel}>Quiet hours start</Text>
-          <View style={styles.pillRow}>
-            {QUIET_START_OPTIONS.map((item) => (
-              <PillChip
-                key={item}
-                label={formatTime(item)}
-                selected={quietStart === item}
-                onPress={async () => {
-                  setQuietStart(item);
-                  await persistReminderPrefs({ quietStart: item });
-                }}
-              />
-            ))}
-          </View>
-
-          <Text style={styles.prefLabel}>Quiet hours end</Text>
-          <View style={styles.pillRow}>
-            {QUIET_END_OPTIONS.map((item) => (
-              <PillChip
-                key={item}
-                label={formatTime(item)}
-                selected={quietEnd === item}
-                onPress={async () => {
-                  setQuietEnd(item);
-                  await persistReminderPrefs({ quietEnd: item });
-                }}
-              />
-            ))}
-          </View>
-
-          <Text style={styles.prefLabel}>Snooze wellbeing nudges</Text>
-          <View style={styles.pillRow}>
-            <PillChip label="Today" selected={false} onPress={() => applySnooze(12)} />
-            <PillChip label="48h" selected={false} onPress={() => applySnooze(48)} />
-            <PillChip label="This week" selected={false} onPress={() => applySnooze(168)} />
-            {nudgeSnoozeUntil ? (
-              <PillChip label="Resume now" selected={false} onPress={clearSnooze} />
-            ) : null}
-          </View>
-          {nudgeSnoozeUntil ? (
-            <Text style={styles.snoozeText}>
-              Snoozed until {new Date(nudgeSnoozeUntil).toLocaleString()}.
-            </Text>
-          ) : null}
+          <ToggleRow
+            title="Wellbeing nudges"
+            subtitle="Gentle check-in reminders for mood and CareScore"
+            value={prefs.wellbeingReminders}
+            onChange={(val) => update('wellbeingReminders', val)}
+            disabled={!loaded}
+            noBorder
+          />
         </Card>
-      )}
+
+        {prefs.wellbeingReminders && (
+          <Card style={styles.preferencesCard}>
+            <Text style={styles.buddyHint}>{careBuddyLine('reassure')}</Text>
+            <ToggleRow
+              title="Care Buddy personality"
+              subtitle="Friendly coaching copy in reminders and care prompts"
+              value={careBuddyEnabled}
+              onChange={async (val) => {
+                setCareBuddyEnabled(val);
+                await persistReminderPrefs({ careBuddyEnabled: val });
+              }}
+              noBorder
+            />
+
+            <Text style={styles.prefLabel}>Engagement mode</Text>
+            <View style={styles.pillRow}>
+              {[
+                { label: 'Gentle', value: 'gentle' },
+                { label: 'Balanced', value: 'balanced' },
+                { label: 'High', value: 'high' },
+              ].map((mode) => (
+                <PillChip
+                  key={mode.value}
+                  label={mode.label}
+                  selected={engagementMode === mode.value}
+                  onPress={async () => {
+                    setEngagementMode(mode.value as 'gentle' | 'balanced' | 'high');
+                    await persistReminderPrefs({ engagementMode: mode.value as 'gentle' | 'balanced' | 'high' });
+                  }}
+                />
+              ))}
+            </View>
+
+            <Text style={styles.prefLabel}>Reminder time</Text>
+            <View style={styles.pillRow}>
+              {REMINDER_TIMES.map((item) => (
+                <PillChip
+                  key={item}
+                  label={formatTime(item)}
+                  selected={reminderTime === item}
+                  onPress={async () => {
+                    setReminderTime(item);
+                    await persistReminderPrefs({ reminderTime: item });
+                  }}
+                />
+              ))}
+            </View>
+
+            <Text style={styles.prefLabel}>Quiet hours start</Text>
+            <View style={styles.pillRow}>
+              {QUIET_START_OPTIONS.map((item) => (
+                <PillChip
+                  key={item}
+                  label={formatTime(item)}
+                  selected={quietStart === item}
+                  onPress={async () => {
+                    setQuietStart(item);
+                    await persistReminderPrefs({ quietStart: item });
+                  }}
+                />
+              ))}
+            </View>
+
+            <Text style={styles.prefLabel}>Quiet hours end</Text>
+            <View style={styles.pillRow}>
+              {QUIET_END_OPTIONS.map((item) => (
+                <PillChip
+                  key={item}
+                  label={formatTime(item)}
+                  selected={quietEnd === item}
+                  onPress={async () => {
+                    setQuietEnd(item);
+                    await persistReminderPrefs({ quietEnd: item });
+                  }}
+                />
+              ))}
+            </View>
+
+            <Text style={styles.prefLabel}>Snooze wellbeing nudges</Text>
+            <View style={styles.pillRow}>
+              <PillChip label="Today" selected={false} onPress={() => applySnooze(12)} />
+              <PillChip label="48h" selected={false} onPress={() => applySnooze(48)} />
+              <PillChip label="This week" selected={false} onPress={() => applySnooze(168)} />
+              {nudgeSnoozeUntil ? (
+                <PillChip label="Resume now" selected={false} onPress={clearSnooze} />
+              ) : null}
+            </View>
+            {nudgeSnoozeUntil ? (
+              <Text style={styles.snoozeText}>
+                Snoozed until {new Date(nudgeSnoozeUntil).toLocaleString()}.
+              </Text>
+            ) : null}
+          </Card>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -314,6 +338,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.bg.primary,
   },
+  scrollContent: {
+    paddingBottom: Spacing.xxxxl,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -329,11 +356,19 @@ const styles = StyleSheet.create({
   card: {
     marginHorizontal: Spacing.xl,
     padding: 0,
+    borderRadius: 24,
+  },
+  saveErrorText: {
+    ...Typography.caption,
+    color: Colors.status.danger,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
   },
   preferencesCard: {
     marginHorizontal: Spacing.xl,
     marginTop: Spacing.md,
     gap: Spacing.xs,
+    borderRadius: 24,
   },
   prefLabel: {
     ...Typography.captionEmphasis,

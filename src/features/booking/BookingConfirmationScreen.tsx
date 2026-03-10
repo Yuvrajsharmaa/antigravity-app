@@ -1,22 +1,32 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Button, Card, Avatar } from '../../core/components';
+import { Button, Card, Avatar, ErrorState } from '../../core/components';
 import { careBuddyLine } from '../../core/utils/careBuddy';
 
 export const BookingConfirmationScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
-  const { therapist, booking } = route.params;
+  const { therapist, booking } = route.params || {};
+  if (!therapist || !booking) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <ErrorState
+          message="Booking details are missing. Please re-open this confirmation from Sessions."
+          onRetry={() => navigation.navigate('SessionsTab')}
+        />
+      </SafeAreaView>
+    );
+  }
   const startDate = new Date(booking.scheduled_start_at);
   const isPendingConfirmation = booking.status === 'pending_payment';
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         {/* Success icon */}
         <View style={[styles.successCircle, isPendingConfirmation && styles.pendingCircle]}>
           <Ionicons
@@ -114,7 +124,7 @@ export const BookingConfirmationScreen: React.FC<{ route: any; navigation: any }
             }}
           />
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -122,15 +132,17 @@ export const BookingConfirmationScreen: React.FC<{ route: any; navigation: any }
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.bg.primary },
   container: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: Spacing.xl,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
+    paddingTop: Spacing.xl,
+    paddingBottom: Spacing.xxxxl + 24,
   },
   successCircle: {
     width: 80,
     height: 80,
-    borderRadius: 40,
+    borderRadius: 24,
     backgroundColor: Colors.status.success,
     alignItems: 'center',
     justifyContent: 'center',
@@ -164,7 +176,7 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
     backgroundColor: Colors.accent.soft,
     padding: Spacing.md,
-    borderRadius: Radius.lg,
+    borderRadius: Radius.xl,
     width: '100%',
     marginBottom: Spacing.xl,
   },
@@ -173,6 +185,7 @@ const styles = StyleSheet.create({
     width: '100%',
     marginBottom: Spacing.xl,
     gap: Spacing.xs,
+    borderRadius: Radius.xl,
   },
   timelineTitle: {
     ...Typography.captionEmphasis,

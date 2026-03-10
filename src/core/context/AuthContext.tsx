@@ -14,6 +14,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   isTherapistMode: boolean;
+  canUseTherapistMode: boolean;
   toggleTherapistMode: () => void;
   isDevAdmin: boolean;
 }
@@ -142,11 +143,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const toggleTherapistMode = () => {
+    if (!canUseTherapistMode) {
+      setIsTherapistMode(false);
+      return;
+    }
     setIsTherapistMode(!isTherapistMode);
   };
 
+  const canUseTherapistMode = profile?.role === 'therapist' || profile?.role === 'admin';
   const isDevAdmin =
     profile?.role === 'admin' && isDevAdminEmail(profile?.email || session?.user?.email);
+
+  useEffect(() => {
+    if (!canUseTherapistMode && isTherapistMode) {
+      setIsTherapistMode(false);
+    }
+  }, [canUseTherapistMode, isTherapistMode]);
 
   useEffect(() => {
     if (!session?.user?.id || !profile) return;
@@ -169,6 +181,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signOut,
         refreshProfile,
         isTherapistMode,
+        canUseTherapistMode,
         toggleTherapistMode,
         isDevAdmin,
       }}

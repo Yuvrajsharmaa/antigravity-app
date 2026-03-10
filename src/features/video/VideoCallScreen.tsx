@@ -15,26 +15,30 @@ import { useAuth } from '../../core/context/AuthContext';
 import { completeSessionAndBooking } from '../../core/services/careFlowService';
 import { asDependencyState, dependenciesReady, describeBlockingDependency } from '../../core/utils/flowDependencies';
 import { careBuddyLine } from '../../core/utils/careBuddy';
+import { VideoCallRouteSession } from '../../navigation/types';
 
 export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
-  const { session } = route.params;
+  const [sessionState, setSessionState] = useState<VideoCallRouteSession | null>(route.params?.session || null);
   const { isTherapistMode } = useAuth();
   const [callState, setCallState] = useState<'waiting' | 'connecting' | 'active' | 'ended'>('waiting');
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [elapsed, setElapsed] = useState(0);
+  const [truthIssue, setTruthIssue] = useState<string | null>(null);
+  const [refreshingTruth, setRefreshingTruth] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const participantName = session.participant_name || session.therapist_name || 'Session participant';
-  const participantAvatar = session.participant_avatar || session.therapist_avatar || null;
+  const participantName = sessionState?.participant_name || sessionState?.therapist_name || 'Session participant';
+  const participantAvatar = sessionState?.participant_avatar || sessionState?.therapist_avatar || null;
   const participantRoleLabel = isTherapistMode ? 'Client' : 'Therapist';
 
   const calculatedDuration = Math.round(
-    (new Date(session.scheduled_end_at).getTime() - new Date(session.scheduled_start_at).getTime()) / 60000
+    (new Date(sessionState?.scheduled_end_at || Date.now()).getTime()
+      - new Date(sessionState?.scheduled_start_at || Date.now()).getTime()) / 60000
   );
   const sessionDuration = Number.isFinite(calculatedDuration) && calculatedDuration > 0 ? calculatedDuration : 45;
   const totalSeconds = sessionDuration * 60;
@@ -44,6 +48,61 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
+
+  const refreshSessionTruth = async () => {
+    if (!sessionState?.id || !sessionState?.booking_id) {
+      setTruthIssue('Session details are incomplete. Reopen this call from Sessions.');
+      return false;
+    }
+
+    setRefreshingTruth(true);
+    setTruthIssue(null);
+    try {
+      const [{ data: latestSession, error: sessionError }, { data: latestBooking, error: bookingError }] = await Promise.all([
+        supabase
+          .from('sessions')
+          .select('id,status,video_call_id')
+          .eq('id', sessionState.id)
+          .maybeSingle(),
+        supabase
+          .from('bookings')
+          .select('id,status,session_type,scheduled_start_at,scheduled_end_at')
+          .eq('id', sessionState.booking_id)
+          .maybeSingle(),
+      ]);
+
+      if (sessionError) throw sessionError;
+      if (bookingError) throw bookingError;
+      if (!latestSession || !latestBooking) {
+        setTruthIssue('Session is not ready yet. Please refresh from Sessions.');
+        return false;
+      }
+      if (latestBooking.status !== 'confirmed') {
+        setTruthIssue('This booking is not confirmed yet.');
+        return false;
+      }
+      if (['completed', 'cancelled'].includes(latestSession.status)) {
+        setTruthIssue('This session is already closed.');
+        return false;
+      }
+
+      setSessionState((prev: any) => ({
+        ...prev,
+        status: latestSession.status,
+        video_call_id: latestSession.video_call_id,
+        booking_status: latestBooking.status,
+        session_type: latestBooking.session_type,
+        scheduled_start_at: latestBooking.scheduled_start_at,
+        scheduled_end_at: latestBooking.scheduled_end_at,
+      }));
+      return true;
+    } catch (error: any) {
+      setTruthIssue(error.message || 'Unable to verify session status right now.');
+      return false;
+    } finally {
+      setRefreshingTruth(false);
+    }
+  };
 
   const startTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -61,14 +120,17 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
 
   const startCall = async () => {
     const dependencies = [
-      asDependencyState('session_id', 'Session room', Boolean(session?.id), 'Ask therapist to confirm booking first.'),
-      asDependencyState('booking_id', 'Booking details', Boolean(session?.booking_id), 'Refresh sessions and try again.'),
+      asDependencyState('session_id', 'Session room', Boolean(sessionState?.id), 'Ask therapist to confirm booking first.'),
+      asDependencyState('booking_id', 'Booking details', Boolean(sessionState?.booking_id), 'Refresh sessions and try again.'),
       asDependencyState('participant', 'Participant', Boolean(participantName), 'Re-open this call from sessions.'),
     ];
     if (!dependenciesReady(dependencies)) {
       Alert.alert('Unavailable', describeBlockingDependency(dependencies) || 'This session is not ready to join yet.');
       return;
     }
+
+    const isFresh = await refreshSessionTruth();
+    if (!isFresh) return;
 
     setCallState('connecting');
     setElapsed(0);
@@ -84,7 +146,7 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
         status: 'in_progress',
         ...joinPayload,
       })
-      .eq('id', session.id);
+      .eq('id', sessionState?.id || '');
 
     if (error) {
       setCallState('waiting');
@@ -104,8 +166,8 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
 
     try {
       await completeSessionAndBooking({
-        sessionId: session.id,
-        bookingId: session.booking_id,
+        sessionId: sessionState?.id,
+        bookingId: sessionState?.booking_id,
       });
     } catch (error: any) {
       Alert.alert(
@@ -144,7 +206,7 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
             <TouchableOpacity
               style={styles.endedBtn}
               onPress={() => {
-                navigation.navigate('PostSessionReflection', { session });
+                navigation.navigate('PostSessionReflection', { session: sessionState });
               }}
             >
               <Text style={styles.endedBtnText}>{isTherapistMode ? 'Open follow-up' : 'Reflect now'}</Text>
@@ -164,7 +226,7 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
   }
 
   if (callState === 'waiting') {
-    if (!session?.participant_name && !session?.therapist_name) {
+    if (!sessionState?.participant_name && !sessionState?.therapist_name) {
       return (
         <SafeAreaView style={styles.safeArea}>
           <ErrorState
@@ -187,10 +249,19 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
             <Text style={styles.waitingName}>{participantName}</Text>
             <Text style={styles.waitingRole}>{participantRoleLabel}</Text>
             <Text style={styles.waitingTime}>
-              {new Date(session.scheduled_start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {new Date(sessionState.scheduled_start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               {' · '}{sessionDuration} min
             </Text>
           </Card>
+
+          {truthIssue ? (
+            <Card style={styles.truthIssueCard}>
+              <Text style={styles.truthIssueText}>{truthIssue}</Text>
+              <TouchableOpacity onPress={refreshSessionTruth}>
+                <Text style={styles.truthIssueRetry}>{refreshingTruth ? 'Refreshing...' : 'Retry status check'}</Text>
+              </TouchableOpacity>
+            </Card>
+          ) : null}
 
           <View style={styles.permissionsCard}>
             <PermissionRow icon="camera-outline" label="Camera" granted={!isCameraOff} />
@@ -242,9 +313,9 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
           <Text style={styles.callName}>{participantName}</Text>
           <View style={[styles.timerBadge, remaining < 300 && styles.timerWarning]}>
             <Ionicons name="time-outline" size={14} color={remaining < 300 ? Colors.status.danger : Colors.text.inverse} />
-            <Text style={[styles.timerText, remaining < 300 && styles.timerTextWarning]}>
-              {formatTime(Math.max(remaining, 0))}
-            </Text>
+              <Text style={[styles.timerText, remaining < 300 && styles.timerTextWarning]}>
+                {formatTime(Math.max(remaining, 0))}
+              </Text>
           </View>
         </View>
       </SafeAreaView>
@@ -332,8 +403,8 @@ const ctrlStyles = StyleSheet.create({
   circle: {
     width: 52,
     height: 52,
-    borderRadius: 26,
-    backgroundColor: Colors.text.primary + '20',
+    borderRadius: 18,
+    backgroundColor: Colors.accent.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -353,6 +424,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: Colors.bg.primary,
   },
   closeBtn: {
     position: 'absolute',
@@ -385,6 +457,19 @@ const styles = StyleSheet.create({
     borderColor: Colors.stroke.subtle,
     marginBottom: Spacing.xl,
   },
+  truthIssueCard: {
+    marginTop: Spacing.sm,
+    gap: Spacing.xs,
+    width: '100%',
+  },
+  truthIssueText: {
+    ...Typography.caption,
+    color: Colors.status.danger,
+  },
+  truthIssueRetry: {
+    ...Typography.captionEmphasis,
+    color: Colors.accent.primary,
+  },
   previewControls: {
     flexDirection: 'row',
     gap: Spacing.xl,
@@ -397,21 +482,21 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
     width: '100%',
     paddingVertical: Spacing.md,
-    backgroundColor: Colors.status.success,
+    backgroundColor: Colors.accent.primary,
     borderRadius: Radius.lg,
   },
   joinBtnText: { ...Typography.bodySemibold, color: Colors.text.inverse },
 
-  callContainer: { flex: 1, backgroundColor: '#1a1a2e' },
+  callContainer: { flex: 1, backgroundColor: '#E9EFEA' },
   remoteVideo: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#16213e',
+    backgroundColor: '#DCE7DE',
   },
   connectingText: {
     ...Typography.body,
-    color: '#fff',
+    color: Colors.text.secondary,
     marginTop: Spacing.md,
     opacity: 0.7,
   },
@@ -428,18 +513,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.sm,
   },
-  callName: { ...Typography.bodySemibold, color: '#fff' },
+  callName: { ...Typography.bodySemibold, color: Colors.text.primary },
   timerBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: Colors.bg.secondary,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 6,
     borderRadius: Radius.pill,
   },
   timerWarning: { backgroundColor: Colors.status.dangerSoft },
-  timerText: { ...Typography.captionEmphasis, color: '#fff' },
+  timerText: { ...Typography.captionEmphasis, color: Colors.text.primary },
   timerTextWarning: { color: Colors.status.danger },
   localPreview: {
     position: 'absolute',
@@ -451,26 +536,29 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: Colors.bg.secondary,
   },
   localPreviewOff: {
     flex: 1,
-    backgroundColor: '#2d2d44',
+    backgroundColor: '#EBEFEA',
     alignItems: 'center',
     justifyContent: 'center',
   },
   localPreviewActive: {
     flex: 1,
-    backgroundColor: '#0f3460',
+    backgroundColor: '#BED1C2',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  localPreviewLabel: { ...Typography.caption, color: '#fff', opacity: 0.7 },
+  localPreviewLabel: { ...Typography.caption, color: Colors.text.primary, opacity: 0.7 },
   bottomOverlay: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(247,248,245,0.92)',
+    borderTopWidth: 1,
+    borderTopColor: Colors.stroke.subtle,
   },
   callControls: {
     flexDirection: 'row',

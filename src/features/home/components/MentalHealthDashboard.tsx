@@ -140,15 +140,17 @@ export const MentalHealthDashboard: React.FC<{ openSignal?: number }> = ({ openS
         <View style={styles.metricsRow}>
           <TouchableOpacity style={[styles.metricCard, styles.careCard]} activeOpacity={0.8}>
             <View style={styles.metricCardHeader}>
-              <Ionicons name="heart-half-outline" size={16} color={Colors.text.inverse} />
-              <Text style={styles.metricCardTitle}>CareScore</Text>
+              <Ionicons name="heart-half-outline" size={16} color={Colors.accent.dark} />
+              <Text style={[styles.metricCardTitle, styles.metricCardTitleCare]}>CareScore</Text>
             </View>
             <View style={styles.scoreContainer}>
               <View style={styles.scoreCircle}>
                 <Text style={styles.scoreNumber}>{careScore !== null ? careScore : '-'}</Text>
               </View>
             </View>
-            <Text style={styles.scoreLabel}>{careScore !== null ? 'Logged' : 'Pending'}</Text>
+            <Text style={[styles.scoreLabel, styles.scoreLabelCare]}>
+              {careScore !== null ? 'Logged' : 'Pending'}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -157,13 +159,13 @@ export const MentalHealthDashboard: React.FC<{ openSignal?: number }> = ({ openS
             onPress={() => setShowModal(true)}
           >
             <View style={styles.metricCardHeader}>
-              <Ionicons name="happy-outline" size={16} color={Colors.text.inverse} />
-              <Text style={styles.metricCardTitle}>Mood</Text>
+              <Ionicons name="happy-outline" size={16} color={Colors.status.warning} />
+              <Text style={[styles.metricCardTitle, styles.metricCardTitleMood]}>Mood</Text>
             </View>
             <View style={styles.moodIconContainer}>
               <Text style={styles.moodEmoji}>{getMoodEmoji(mood)}</Text>
             </View>
-            <Text style={styles.scoreLabel}>{mood || 'Log now'}</Text>
+            <Text style={[styles.scoreLabel, styles.scoreLabelMood]}>{mood || 'Log now'}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -283,13 +285,15 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     alignItems: 'center',
     justifyContent: 'space-between',
-    height: 180,
+    height: 168,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
   },
   careCard: {
-    backgroundColor: Colors.accent.primary,
+    backgroundColor: Colors.accent.soft,
   },
   moodCard: {
-    backgroundColor: Colors.status.warning,
+    backgroundColor: Colors.status.warningSoft,
   },
   metricCardHeader: {
     flexDirection: 'row',
@@ -299,13 +303,20 @@ const styles = StyleSheet.create({
   },
   metricCardTitle: {
     ...Typography.captionEmphasis,
-    color: Colors.text.inverse,
+  },
+  metricCardTitleCare: {
+    color: Colors.accent.dark,
+  },
+  metricCardTitleMood: {
+    color: Colors.status.warning,
   },
   scoreContainer: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: Colors.bg.secondary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -323,7 +334,7 @@ const styles = StyleSheet.create({
   },
   scoreNumber: {
     ...Typography.title1,
-    color: Colors.accent.primary,
+    color: Colors.accent.dark,
   },
   moodIconContainer: {
     width: 72,
@@ -332,11 +343,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   moodEmoji: {
-    fontSize: 54,
+    fontSize: 46,
   },
   scoreLabel: {
     ...Typography.bodySemibold,
-    color: Colors.text.inverse,
+  },
+  scoreLabelCare: {
+    color: Colors.accent.dark,
+  },
+  scoreLabelMood: {
+    color: Colors.text.primary,
   },
   trackerCard: {
     padding: Spacing.md,
@@ -363,7 +379,7 @@ const styles = StyleSheet.create({
   trackerIconBox: {
     width: 44,
     height: 44,
-    borderRadius: 14,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -388,7 +404,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.bg.secondary,
     padding: Spacing.md,
-    borderRadius: Radius.lg,
+    borderRadius: Radius.xl,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
     gap: Spacing.sm,
@@ -396,7 +412,7 @@ const styles = StyleSheet.create({
   logPromptIcon: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: 16,
     backgroundColor: Colors.accent.soft,
     alignItems: 'center',
     justifyContent: 'center',

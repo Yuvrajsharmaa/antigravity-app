@@ -7,11 +7,13 @@ import { View } from 'react-native';
 import { Colors, Typography } from '../core/theme';
 import { useAuth } from '../core/context/AuthContext';
 import { LoadingState } from '../core/components';
+import { getRoleModeContract } from '../core/utils/roleAccess';
 
 // Screens
 import { WelcomeScreen } from '../features/auth/WelcomeScreen';
 import { OnboardingScreen } from '../features/onboarding/OnboardingScreen';
 import { HomeScreen } from '../features/home/HomeScreen';
+import { TherapistMatchScreen } from '../features/match/TherapistMatchScreen';
 import { TherapistProfileScreen } from '../features/therapist/TherapistProfileScreen';
 import { SlotSelectionScreen } from '../features/booking/SlotSelectionScreen';
 import { BookingConfirmationScreen } from '../features/booking/BookingConfirmationScreen';
@@ -33,13 +35,11 @@ const Tab = createBottomTabNavigator();
 const HomeStack = createNativeStackNavigator();
 const MessagesStack = createNativeStackNavigator();
 const ProfileStack = createNativeStackNavigator();
+const MatchStack = createNativeStackNavigator();
 
 const HomeStackScreen = () => (
   <HomeStack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
     <HomeStack.Screen name="HomeMain" component={HomeScreen} />
-    <HomeStack.Screen name="TherapistProfile" component={TherapistProfileScreen} />
-    <HomeStack.Screen name="SlotSelection" component={SlotSelectionScreen} />
-    <HomeStack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} />
     <HomeStack.Screen name="ClientDetail" component={ClientDetailScreen} />
     <HomeStack.Screen name="Journal" component={JournalScreen} />
     <HomeStack.Screen name="HomeNotifications" component={NotificationsScreen} />
@@ -53,6 +53,15 @@ const MessagesStackScreen = () => (
   </MessagesStack.Navigator>
 );
 
+const MatchStackScreen = () => (
+  <MatchStack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+    <MatchStack.Screen name="TherapistMatch" component={TherapistMatchScreen} />
+    <MatchStack.Screen name="TherapistProfile" component={TherapistProfileScreen} />
+    <MatchStack.Screen name="SlotSelection" component={SlotSelectionScreen} />
+    <MatchStack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} />
+  </MatchStack.Navigator>
+);
+
 const ProfileStackScreen = () => (
   <ProfileStack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
     <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
@@ -63,7 +72,10 @@ const ProfileStackScreen = () => (
 );
 
 const MainTabs = () => {
+  const { profile, isTherapistMode } = useAuth();
   const insets = require('react-native-safe-area-context').useSafeAreaInsets();
+  const roleMode = getRoleModeContract(profile?.role, isTherapistMode);
+  const showMatchTab = roleMode.canAccessMatchFlow;
 
   return (
     <Tab.Navigator
@@ -77,6 +89,9 @@ const MainTabs = () => {
               break;
             case 'SessionsTab':
               iconName = focused ? 'calendar' : 'calendar-outline';
+              break;
+            case 'MatchTab':
+              iconName = focused ? 'sparkles' : 'sparkles-outline';
               break;
             case 'MessagesTab':
               iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
@@ -95,21 +110,30 @@ const MainTabs = () => {
           fontWeight: '500',
         },
         tabBarStyle: {
-          backgroundColor: Colors.bg.primary,
+          backgroundColor: Colors.bg.secondary,
           borderTopColor: Colors.stroke.subtle,
           borderTopWidth: 1,
           paddingTop: 8,
           paddingBottom: Math.max(insets.bottom, 8),
           height: 60 + Math.max(insets.bottom, 8),
-          elevation: 8,
+          borderTopLeftRadius: 16,
+          borderTopRightRadius: 16,
+          elevation: 6,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.05,
-          shadowRadius: 10,
+          shadowOpacity: 0.04,
+          shadowRadius: 8,
         },
       })}
     >
-      <Tab.Screen name="HomeTab" component={HomeStackScreen} options={{ tabBarLabel: 'Home' }} />
+      <Tab.Screen
+        name="HomeTab"
+        component={HomeStackScreen}
+        options={{ tabBarLabel: roleMode.canUseTherapistMode && isTherapistMode ? 'Dashboard' : 'Home' }}
+      />
+      {showMatchTab ? (
+        <Tab.Screen name="MatchTab" component={MatchStackScreen} options={{ tabBarLabel: 'Match' }} />
+      ) : null}
       <Tab.Screen name="SessionsTab" component={SessionsScreen} options={{ tabBarLabel: 'Sessions' }} />
       <Tab.Screen name="MessagesTab" component={MessagesStackScreen} options={{ tabBarLabel: 'Messages' }} />
       <Tab.Screen name="ProfileTab" component={ProfileStackScreen} options={{ tabBarLabel: 'Profile' }} />

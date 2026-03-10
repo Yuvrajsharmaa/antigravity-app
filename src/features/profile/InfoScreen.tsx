@@ -45,7 +45,7 @@ export const InfoScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Card>
+        <Card style={styles.infoCard}>
           <Text style={styles.body}>{content.body}</Text>
         </Card>
       </ScrollView>
@@ -73,6 +73,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing.xxxxl,
+  },
+  infoCard: {
+    borderRadius: 24,
   },
   body: {
     ...Typography.body,

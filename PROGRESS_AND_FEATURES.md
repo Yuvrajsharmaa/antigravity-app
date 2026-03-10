@@ -41,6 +41,187 @@ Build **"Care Space"**, a comprehensive psychological consultation platform wher
 
 ## 📈 Recent Updates Log (Changelog)
 
+- **[Codex AGENT] - March 11, 2026 (Edge-Case Follow-up: Route Guard + Tab-Safe Scrolling + Onboarding Header Simplification)**
+  - Fixed remaining role-route mismatch in messages:
+    - `src/features/messages/MessagesListScreen.tsx` now uses role contract checks for empty-state CTA.
+    - Client mode keeps `Go to Match`; therapist/admin mode now shows non-Match guidance (prevents dead-end navigation to hidden tab).
+  - Applied tab-bar-safe dynamic bottom spacing for long screens to prevent clipped actions/content:
+    - `src/features/home/HomeScreen.tsx`
+    - `src/features/match/TherapistMatchScreen.tsx`
+    - `src/features/sessions/SessionsScreen.tsx`
+    - `src/features/messages/MessagesListScreen.tsx`
+    - `src/features/journal/JournalScreen.tsx`
+    - `src/features/profile/ProfileScreen.tsx`
+    - `src/features/profile/NotificationsScreen.tsx`
+    - Uses `useBottomTabBarHeight()` for runtime-safe padding across device sizes.
+  - Simplified onboarding top metadata strip for cleaner thumb-friendly focus:
+    - `src/features/onboarding/OnboardingScreen.tsx`
+    - Removed role badge chips from step header and kept minimal `Step X of Y` + step title.
+  - Validation:
+    - `npx tsc --noEmit` passes.
+
+- **[Codex AGENT] - March 11, 2026 (Deep Stabilization Pass: Role Guards + Atomic Confirm + Messaging Reliability)**
+  - Enforced strict role boundaries across navigation and therapist workflows:
+    - `src/core/context/AuthContext.tsx`: added `canUseTherapistMode` contract, blocked therapist mode for non-therapist/non-admin users, and auto-reset invalid mode state.
+    - `src/navigation/AppNavigator.tsx`: Match tab is now client-mode only; therapist/admin in therapist mode get a 4-tab therapist layout (`Dashboard/Home`, `Sessions`, `Messages`, `Profile`).
+    - Added role contract helper `src/core/utils/roleAccess.ts`.
+    - Guarded therapist-only surfaces:
+      - `src/features/therapist-dashboard/TherapistDashboardScreen.tsx`
+      - `src/features/therapist-dashboard/ClientDetailScreen.tsx`
+      - `src/features/match/TherapistMatchScreen.tsx` (blocked in therapist mode).
+  - Fixed broken therapist-profile chat entrypoint and route dependency safety:
+    - `src/features/therapist/TherapistProfileScreen.tsx` now uses `ensureConversation(...)` before navigating to chat.
+    - `src/features/messages/ChatScreen.tsx` now hard-guards initialization so message fetch/realtime do not run without a valid `conversationId`.
+  - Added typed route payload contracts to reduce param-mismatch crashes:
+    - New `src/navigation/types.ts` with typed params for `Chat`, `TherapistProfile`, `SlotSelection`, and `VideoCall` payloads.
+  - Stabilized booking confirmation chain with atomic backend operation:
+    - New migration: `supabase/migrations/20260311101500_flow_stabilization_policies_and_atomic_confirm.sql`.
+      - Adds therapist conversation RLS policies: `conv_select_therapist`, `conv_update_therapist`, `conv_insert_therapist`.
+      - Adds RPC: `public.confirm_booking_atomic(p_booking_id UUID, p_slot_id UUID)` for transactional slot lock + booking confirm + session ensure.
+    - `src/core/services/careFlowService.ts` now calls RPC in `confirmBookingAndEnsureSession(...)`, with migration-missing fallback messaging.
+    - Synced canonical schema in `supabase/schema.sql` with new conversation policies and RPC definition.
+  - Added nudge dedupe/cooldown reliability:
+    - `src/core/services/careFlowService.ts`: new `getNudgeCooldownState(...)`.
+    - `src/features/home/components/DailyCheckInModal.tsx`: auto high-risk nudge now deduped to max once/24h per user and inserts a single therapist-visible event per cooldown window.
+    - `src/features/therapist-dashboard/TherapistDashboardScreen.tsx`: manual therapist template nudge now blocked if sent within previous 24h.
+  - Improved messaging list performance and resilience:
+    - `src/features/messages/MessagesListScreen.tsx` replaced N+1 per-conversation fetches with batched queries for latest messages and recent moods; missing metrics now soft-fail without breaking list load.
+  - Added additional no-dead-end safeguards:
+    - `src/features/booking/SlotSelectionScreen.tsx` and `src/features/booking/BookingConfirmationScreen.tsx` now include missing-param recovery states.
+    - `src/features/sessions/SessionsScreen.tsx`: client empty-state CTA now routes to `MatchTab`; added retry affordance when session room is still being prepared.
+    - `src/features/video/VideoCallScreen.tsx`: added server-truth refresh before join and recoverable stale-status card with retry.
+  - Onboarding/UX semantics hardening:
+    - `src/features/onboarding/OnboardingScreen.tsx`: added quiet-hours coherence validation before completion and softened therapist step naming (`Practice Profile`).
+    - `src/core/services/matchingService.ts`: now incorporates `session_preference` and `time_preference` into slot selection/availability scoring and reason chips.
+    - `src/features/profile/NotificationsScreen.tsx`: added explicit save-error handling for preference writes (no silent failures).
+  - Validation:
+    - `npx tsc --noEmit` passes.
+
+- **[Codex AGENT] - March 11, 2026 (Home Separation + Dedicated Therapist Match Flow)**
+  - Split therapist discovery out of Home and into a dedicated matching tab:
+    - Added new `Match` tab stack in `src/navigation/AppNavigator.tsx`.
+    - Added new screen `src/features/match/TherapistMatchScreen.tsx`.
+  - Implemented structured therapist matching intake (client side):
+    - 3-step flow in `TherapistMatchScreen.tsx`:
+      - support focus (up to 2 intent selections),
+      - care style + optional therapist gender preference,
+      - language + session mode + time preference.
+    - Persists answers to Supabase `user_preferences` and updates profile language.
+    - Reuses `matchTherapistsForClient` for ranked output (`Top 3` + curated roster).
+    - Added transparent “why this match” chips and media-first therapist cards.
+  - Simplified Home experience (`src/features/home/HomeScreen.tsx`):
+    - Removed therapist discovery sections from Home (`Top therapist matches` and `Browse curated therapists`).
+    - Added focused “Find your therapist fit” CTA that routes to `MatchTab`.
+    - Preserved care journey, check-in, journal, messages, and upcoming session actions.
+  - Softened metric card visual intensity in `src/features/home/components/MentalHealthDashboard.tsx`:
+    - Switched CareScore/Mood cards to softer backgrounds with darker text and reduced visual saturation.
+  - Updated messages empty-state routing in `src/features/messages/MessagesListScreen.tsx`:
+    - Empty CTA now routes users to `MatchTab` instead of Home.
+  - Validation:
+    - `npx tsc --noEmit` passes.
+
+- **[Codex AGENT] - March 11, 2026 (UX Fix Pass: Scrollability + Match Visibility + Nav/Radius Corrections)**
+  - Fixed bottom-nav overlap and viewport clipping:
+    - Updated `src/navigation/AppNavigator.tsx` tab bar from floating absolute layout to stable docked layout with safe-area height.
+    - This prevents tab bar from covering content on long screens (Journal/Notifications/Chat etc.).
+  - Added/standardized required scrolling for long content screens:
+    - `src/features/profile/NotificationsScreen.tsx` now wrapped in `ScrollView` with bottom-safe content padding.
+    - `src/features/sessions/SessionPrepScreen.tsx` now uses `ScrollView` for full prep content on smaller devices.
+    - `src/features/sessions/PostSessionReflectionScreen.tsx` now uses `ScrollView` for full follow-up/reflection actions.
+    - `src/features/profile/EditProfileScreen.tsx` now scrollable with safe bottom padding.
+    - `src/features/booking/BookingConfirmationScreen.tsx` converted to scrollable container and top-aligned layout.
+  - Reduced over-rounded corners globally:
+    - Tuned `src/core/theme/spacing.ts` radius tokens down (`sm/md/lg/xl`) to reduce excessive squircle rounding.
+  - Restored therapist match visibility and fallback behavior:
+    - Updated `src/core/services/matchingService.ts` to fallback from `verified + active` to `active` therapists when verified pool is empty.
+  - Upgraded therapist discovery card UX (Airbnb-inspired card structure):
+    - `src/features/home/HomeScreen.tsx` now uses media-first therapist cards with top visual panel, heart icon slot, rationale chips, and price/availability summary.
+    - Top matches now displayed in horizontal featured card row for immediate visibility.
+  - Added explicit therapist/client onboarding distinction:
+    - `src/features/onboarding/OnboardingScreen.tsx` now shows role badge (`Client Journey` / `Therapist Journey`) in step header.
+    - Therapist welcome panel has distinct visual treatment from client flow.
+
+- **[Codex AGENT] - March 11, 2026 (Global UI Upgrade Sprint: White Premium + Squircle System)**
+  - Rolled out a global visual system refresh (white-first, earth-tone accents, squircle surfaces) across core theme and shared UI primitives:
+    - Updated `src/core/theme/colors.ts` for lighter base surfaces + refined sage/earth accents.
+    - Updated `src/core/theme/typography.ts` to a friendlier non-default font stack (Avenir Next on iOS, medium-weight sans on Android) with stronger hierarchy.
+    - Updated `src/core/theme/spacing.ts` radius/shadow tokens for Apple-style squircle corners and softer depth.
+    - Updated shared components:
+      - `src/core/components/Button.tsx` (squircle buttons, clearer primary/secondary/ghost hierarchy).
+      - `src/core/components/PillChip.tsx` (chip style shifted to soft selected state for non-aggressive interactions).
+      - `src/core/components/StateViews.tsx` (state cards now rendered as panel surfaces, not flat placeholders).
+  - Upgraded global navigation shell:
+    - `src/navigation/AppNavigator.tsx` tab bar now uses a floating rounded/squircle panel style with stronger visual polish.
+  - Applied screen-level parity pass to ensure “whole app” visual consistency:
+    - Auth:
+      - `src/features/auth/WelcomeScreen.tsx` redesigned with leaf branding, soft hero panel, and cleaner premium entry card.
+    - Matching/Home/Journey:
+      - `src/features/home/HomeScreen.tsx` already on new panel language; aligned with updated tokens and chips.
+      - `src/features/home/components/MentalHealthDashboard.tsx` updated panel/chip/callout shapes and prompt visuals.
+      - `src/features/home/components/DailyCheckInModal.tsx` updated chip/buttons to squircle and softer active states.
+    - Booking:
+      - `src/features/booking/SlotSelectionScreen.tsx` updated date/time/duration chips and state cards to squircle style.
+      - `src/features/booking/BookingConfirmationScreen.tsx` updated confirmation/timeline cards and icon treatment for premium consistency.
+    - Sessions:
+      - `src/features/sessions/SessionsScreen.tsx` refined tab selection and session action surface styling.
+      - `src/features/sessions/SessionPrepScreen.tsx` updated cards/inputs/snapshot modules to squircle panel style.
+      - `src/features/sessions/PostSessionReflectionScreen.tsx` updated chips/inputs/actions to soft, white-first interaction language.
+    - Messages:
+      - `src/features/messages/MessagesListScreen.tsx` converted list rows into card-like conversation panels.
+      - `src/features/messages/ChatScreen.tsx` refined composer, bubbles, banners, and header for full visual parity.
+    - Profile + Settings:
+      - `src/features/profile/ProfileScreen.tsx` retains scroll/accessibility fix and rhythm panel, aligned with new tokens.
+      - `src/features/profile/EditProfileScreen.tsx` converted to card-form layout.
+      - `src/features/profile/NotificationsScreen.tsx` upgraded settings cards to new rounded panel style.
+      - `src/features/profile/InfoScreen.tsx` aligned info content to premium rounded card surface.
+    - Therapist side:
+      - `src/features/therapist-dashboard/TherapistDashboardScreen.tsx` kept risk-first functionality while aligning chips/cards to shared UI family.
+      - `src/features/therapist/TherapistProfileScreen.tsx` aligned rationale chips/surfaces to upgraded component language.
+      - `src/features/therapist-dashboard/ClientDetailScreen.tsx` inherits updated tokens for consistent typography/colors/radius behavior.
+    - Video:
+      - `src/features/video/VideoCallScreen.tsx` re-themed waiting/active overlays and controls to better align with app-wide white-earth visual direction while keeping placeholder call architecture.
+  - Validation:
+    - `npx tsc --noEmit` passes after the full UI upgrade pass.
+
+- **[Codex AGENT] - March 11, 2026 (Smart Matching + White Onboarding + Care Rhythm UX Sprint)**
+  - Added new therapist matching service:
+    - New `src/core/services/matchingService.ts` with `matchTherapistsForClient(userId, options)`.
+    - Implements weighted hybrid matching with transparent breakdown:
+      - intent overlap (35%), care-style fit (25%), language fit (15%), near-term availability in 72h (15%), quality signal (10%).
+    - Added curated roster behavior (default cap: 16, constrained to 12–20 where available) and fallback browse output.
+    - Generates therapist rationale chips (`Works with...`, `Matches your care style`, `Available...`, language fit).
+  - Extended frontend contracts in `src/core/models/types.ts`:
+    - Added `MatchedTherapist`, `MatchScoreBreakdown`, `MatchReasonChip`.
+    - Added onboarding contracts: `OnboardingStepConfig`, `OnboardingQuestion`, `OnboardingResponseDraft`.
+    - Added rhythm contracts: `CareRhythmState`, `CareRhythmMarker`, and wired `CareJourneyState.rhythm`.
+  - Upgraded Care Rhythm computation in `src/core/hooks/useCareJourney.ts`:
+    - Now computes `currentStreak`, `highestStreak`, weekly markers, and `repairsAvailable`.
+    - Keeps daily goals (`Check-in`, `Reflect`, `Connect`) and next-action behavior intact.
+  - Rebuilt client Home matching + rhythm UX in `src/features/home/HomeScreen.tsx`:
+    - Replaced generic therapist list fetch with `matchTherapistsForClient`.
+    - Added `Top therapist matches` section + `Browse curated therapists`.
+    - Added explicit match rationale chips and match score on therapist cards.
+    - Added visible Care Rhythm layer with flame count, weekly markers, best streak, and repair cue.
+    - Preserved existing loading/empty/error/retry patterns and upcoming session entry points.
+  - Redesigned onboarding in `src/features/onboarding/OnboardingScreen.tsx`:
+    - Moved to simplified 5-step structure with shared core + role-specific tail:
+      - Shared: welcome, focus/intent, quick preferences.
+      - Client: baseline check-in, Care Buddy/reminders + consent.
+      - Therapist: practice setup, availability/compliance.
+    - Added minimal top nav with progress dots and squircle controls.
+    - Kept first screen full, leaf icon branding, and friendly `Care Space` heading.
+    - Preserved resume-from-progress behavior via AsyncStorage.
+    - Maintained Supabase persistence for profile/preferences/therapist setup and optional baseline metric write.
+  - Added therapist-side parity context in `src/features/therapist-dashboard/TherapistDashboardScreen.tsx`:
+    - Added compact “why now” chips (recent mood, sleep, rhythm) per client.
+    - Added risk-aware suggested opening prompt per client card.
+    - Kept risk-first sorting, pending confirmation, and nudge/session actions intact.
+  - Updated therapist profile experience in `src/features/therapist/TherapistProfileScreen.tsx`:
+    - Supports incoming match rationale chips and renders them in profile context.
+  - Updated profile reliability/usability in `src/features/profile/ProfileScreen.tsx`:
+    - Added client-side Care Rhythm card (flame + weekly markers + best streak).
+    - Increased scroll padding so bottom actions (including sign-out) remain reachable across device sizes.
+
 - **[Codex AGENT] - March 10, 2026 (Personality-Rich UX + Dependency Hardening Sprint)**
   - Added shared reliability layer:
     - New `src/core/services/careFlowService.ts` with reusable actions:

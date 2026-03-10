@@ -9,15 +9,16 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Button, Card, PillChip } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { Colors, Radius, Spacing, Typography } from '../../core/theme';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ensureNotificationPermission,
   scheduleAdaptiveWellbeingReminders,
@@ -45,50 +46,31 @@ const THERAPIST_SPECIALTIES = [
 
 const LANGUAGE_OPTIONS = ['English', 'Hindi', 'Both'];
 const SESSION_PREF_OPTIONS = ['Chat', 'Video', 'Both'];
-const GENDER_PREF_OPTIONS = [
-  { label: 'No preference', value: 'no_preference' },
-  { label: 'Female', value: 'female' },
-  { label: 'Male', value: 'male' },
-  { label: 'Non-binary', value: 'non_binary' },
-] as const;
 const TIME_PREF_OPTIONS = [
   { label: 'Morning', value: 'morning' },
   { label: 'Afternoon', value: 'afternoon' },
   { label: 'Evening', value: 'evening' },
   { label: 'Flexible', value: 'flexible' },
 ] as const;
-const CARE_STYLE_OPTIONS = ['Gentle', 'Direct', 'Structured', 'Reflective'];
-const REFLECTION_MOODS = ['Calm', 'Low', 'Anxious', 'Overwhelmed', 'Numb', 'Hopeful'];
-const JOURNAL_SHARE_OPTIONS = [
-  { label: 'Summary only', value: 'summary' },
-  { label: 'Only when I choose', value: 'entry_by_entry' },
-  { label: 'Share all', value: 'all' },
-  { label: 'Do not share', value: 'none' },
+const GENDER_PREF_OPTIONS = [
+  { label: 'No preference', value: 'no_preference' },
+  { label: 'Female', value: 'female' },
+  { label: 'Male', value: 'male' },
+  { label: 'Non-binary', value: 'non_binary' },
 ] as const;
+
+const REFLECTION_MOODS = ['Calm', 'Low', 'Anxious', 'Overwhelmed', 'Numb', 'Hopeful'];
+const SLEEP_OPTIONS = ['5', '6', '7', '8', '9'];
 const REMINDER_TIMES = ['09:00:00', '14:00:00', '19:00:00'];
 const QUIET_START_OPTIONS = ['20:00:00', '21:00:00', '22:00:00'];
 const QUIET_END_OPTIONS = ['07:00:00', '08:00:00', '09:00:00'];
+const CARE_STYLE_OPTIONS = ['Gentle', 'Direct', 'Structured', 'Reflective'];
 const THERAPIST_STYLE_OPTIONS = ['Warm and conversational', 'Structured and goal-focused', 'Mindfulness-led'];
-const SLEEP_OPTIONS = ['5', '6', '7', '8', '9'];
 const ENGAGEMENT_OPTIONS: Array<{ label: string; value: 'gentle' | 'balanced' | 'high' }> = [
   { label: 'Gentle', value: 'gentle' },
   { label: 'Balanced', value: 'balanced' },
   { label: 'High', value: 'high' },
 ];
-const MOOD_CHIP_LABELS: Record<string, string> = {
-  Calm: 'Calm 🙂',
-  Low: 'Low 🙁',
-  Anxious: 'Anxious 😬',
-  Overwhelmed: 'Overwhelmed 😵',
-  Numb: 'Numb 😶',
-  Hopeful: 'Hopeful 🙂',
-};
-const STYLE_CHIP_LABELS: Record<string, string> = {
-  Gentle: 'Gentle 🍃',
-  Direct: 'Direct 🎯',
-  Structured: 'Structured 🧭',
-  Reflective: 'Reflective 🌙',
-};
 
 const asTimeLabel = (value: string) => value.slice(0, 5);
 
@@ -117,130 +99,146 @@ const calculateCareScore = (mood: string, stressLevel: number, sleepHours: numbe
   return Math.max(0, Math.min(100, score));
 };
 
+const toggleTag = (value: string, list: string[], setter: (next: string[]) => void, limit?: number) => {
+  if (list.includes(value)) {
+    setter(list.filter((item) => item !== value));
+    return;
+  }
+  if (limit && list.length >= limit) return;
+  setter([...list, value]);
+};
+
+const getStepTitle = (isTherapistFlow: boolean, step: number) => {
+  if (step === 0) return 'Welcome';
+  if (step === 1) return isTherapistFlow ? 'Care Focus' : 'What Brings You Here';
+  if (step === 2) return 'Quick Preferences';
+  if (step === 3) return isTherapistFlow ? 'Practice Profile' : 'Baseline Check-in';
+  return isTherapistFlow ? 'Availability & Compliance' : 'Care Buddy Settings';
+};
+
+const parseTimeToMinutes = (value: string) => {
+  const [hour = '0', minute = '0'] = value.split(':');
+  const hours = Number.parseInt(hour, 10);
+  const minutes = Number.parseInt(minute, 10);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return (Math.max(0, Math.min(23, hours)) * 60) + Math.max(0, Math.min(59, minutes));
+};
+
 export const OnboardingScreen: React.FC = () => {
   const { user, profile, refreshProfile } = useAuth();
   const isTherapistFlow = profile?.role === 'therapist';
-  const { height: viewportHeight } = useWindowDimensions();
+  const totalSteps = 5;
 
-  const totalSteps = isTherapistFlow ? 5 : 6;
+  const { height: viewportHeight } = useWindowDimensions();
   const fade = useRef(new Animated.Value(1)).current;
 
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  const [firstName, setFirstName] = useState('');
+  const [firstName, setFirstName] = useState(profile?.first_name || '');
+
   const [selectedIntents, setSelectedIntents] = useState<string[]>([]);
+  const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
   const [language, setLanguage] = useState('English');
+  const [therapistLanguages, setTherapistLanguages] = useState<string[]>(['English']);
   const [sessionPref, setSessionPref] = useState('Both');
-  const [genderPreference, setGenderPreference] = useState<(typeof GENDER_PREF_OPTIONS)[number]['value']>('no_preference');
   const [timePreference, setTimePreference] = useState<(typeof TIME_PREF_OPTIONS)[number]['value']>('evening');
+  const [genderPreference, setGenderPreference] = useState<(typeof GENDER_PREF_OPTIONS)[number]['value']>('no_preference');
   const [careStylePreference, setCareStylePreference] = useState('Gentle');
-  const [remindersEnabled, setRemindersEnabled] = useState(true);
-  const [reminderTime, setReminderTime] = useState('19:00:00');
-  const [quietStart, setQuietStart] = useState('21:00:00');
-  const [quietEnd, setQuietEnd] = useState('08:00:00');
-  const [journalEnabled, setJournalEnabled] = useState(false);
-  const [journalSharing, setJournalSharing] = useState<(typeof JOURNAL_SHARE_OPTIONS)[number]['value']>('summary');
-  const [careBuddyEnabled, setCareBuddyEnabled] = useState(true);
-  const [engagementMode, setEngagementMode] = useState<'gentle' | 'balanced' | 'high'>('balanced');
+
   const [checkInMood, setCheckInMood] = useState<string | null>(null);
   const [checkInStress, setCheckInStress] = useState(3);
   const [checkInSleep, setCheckInSleep] = useState('7');
   const [checkInNote, setCheckInNote] = useState('');
-  const [agreedTerms, setAgreedTerms] = useState(false);
-  const [agreedNotEmergency, setAgreedNotEmergency] = useState(false);
+
+  const [remindersEnabled, setRemindersEnabled] = useState(true);
+  const [reminderTime, setReminderTime] = useState('19:00:00');
+  const [quietStart, setQuietStart] = useState('21:00:00');
+  const [quietEnd, setQuietEnd] = useState('08:00:00');
+  const [careBuddyEnabled, setCareBuddyEnabled] = useState(true);
+  const [engagementMode, setEngagementMode] = useState<'gentle' | 'balanced' | 'high'>('balanced');
 
   const [headline, setHeadline] = useState('');
-  const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
-  const [therapistLanguages, setTherapistLanguages] = useState<string[]>(['English']);
   const [communicationStyle, setCommunicationStyle] = useState(THERAPIST_STYLE_OPTIONS[0]);
+
+  const [agreedTerms, setAgreedTerms] = useState(false);
+  const [agreedNotEmergency, setAgreedNotEmergency] = useState(false);
   const [agreedConfidentiality, setAgreedConfidentiality] = useState(false);
   const [agreedBoundaries, setAgreedBoundaries] = useState(false);
 
-  useEffect(() => {
-    Animated.sequence([
-      Animated.timing(fade, { toValue: 0, duration: 110, useNativeDriver: true }),
-      Animated.timing(fade, { toValue: 1, duration: 180, useNativeDriver: true }),
-    ]).start();
-  }, [fade, step]);
-
-  const welcomeTitle = useMemo(() => {
-    if (isTherapistFlow) return 'Welcome to your Care Space practice';
-    return 'Talk to a qualified psychologist, without awkward admin';
-  }, [isTherapistFlow]);
-  const progressPercent = `${((step + 1) / totalSteps) * 100}%` as `${number}%`;
-  const welcomeMinHeight = Math.max(440, viewportHeight - 220);
-  const progressStorageKey = user?.id
+  const stepStorageKey = user?.id
     ? `care_space_onboarding_step_${user.id}_${isTherapistFlow ? 'therapist' : 'client'}`
     : null;
 
   useEffect(() => {
-    if (!progressStorageKey) return;
+    Animated.sequence([
+      Animated.timing(fade, { toValue: 0, duration: 90, useNativeDriver: true }),
+      Animated.timing(fade, { toValue: 1, duration: 180, useNativeDriver: true }),
+    ]).start();
+  }, [fade, step]);
 
-    AsyncStorage.getItem(progressStorageKey)
-      .then((value) => {
-        const next = Number.parseInt(value || '', 10);
-        if (Number.isFinite(next) && next >= 0 && next < totalSteps) {
-          setStep(next);
+  useEffect(() => {
+    if (!stepStorageKey) return;
+
+    AsyncStorage.getItem(stepStorageKey)
+      .then((saved) => {
+        const parsed = Number.parseInt(saved || '', 10);
+        if (Number.isFinite(parsed) && parsed >= 0 && parsed < totalSteps) {
+          setStep(parsed);
         }
       })
       .catch(() => {
-        // Resume is best effort only.
+        // Resume is best effort.
       });
-  }, [progressStorageKey, totalSteps]);
+  }, [stepStorageKey]);
 
   useEffect(() => {
-    if (!progressStorageKey) return;
-    AsyncStorage.setItem(progressStorageKey, String(step)).catch(() => {
-      // Resume is best effort only.
+    if (!stepStorageKey) return;
+    AsyncStorage.setItem(stepStorageKey, `${step}`).catch(() => {
+      // Resume is best effort.
     });
-  }, [progressStorageKey, step]);
+  }, [step, stepStorageKey]);
 
-  const toggleTag = (value: string, list: string[], setter: (value: string[]) => void, limit?: number) => {
-    if (list.includes(value)) {
-      setter(list.filter((item) => item !== value));
-      return;
+  const canProceed = useMemo(() => {
+    if (step === 0) return true;
+
+    if (step === 1) {
+      return isTherapistFlow ? selectedSpecialties.length > 0 : selectedIntents.length > 0;
     }
 
-    if (limit && list.length >= limit) return;
-    setter([...list, value]);
-  };
-
-  const canProceed = () => {
-    if (isTherapistFlow) {
-      switch (step) {
-        case 0:
-          return true;
-        case 1:
-          return firstName.trim().length >= 2 && headline.trim().length >= 8;
-        case 2:
-          return selectedSpecialties.length > 0 && therapistLanguages.length > 0;
-        case 3:
-          return sessionPref.length > 0 && communicationStyle.length > 0;
-        case 4:
-          return agreedConfidentiality && agreedBoundaries;
-        default:
-          return false;
+    if (step === 2) {
+      if (isTherapistFlow) {
+        return therapistLanguages.length > 0 && sessionPref.length > 0;
       }
+      return language.length > 0 && sessionPref.length > 0;
     }
 
-    switch (step) {
-      case 0:
-        return true;
-      case 1:
-        return firstName.trim().length >= 2;
-      case 2:
-        return selectedIntents.length > 0;
-      case 3:
-        return language.length > 0 && sessionPref.length > 0;
-      case 4:
-        return true;
-      case 5:
-        return agreedTerms && agreedNotEmergency;
-      default:
-        return false;
+    if (step === 3) {
+      if (isTherapistFlow) {
+        return communicationStyle.length > 0;
+      }
+      return true;
     }
-  };
+
+    if (isTherapistFlow) {
+      return agreedConfidentiality && agreedBoundaries;
+    }
+
+    return agreedTerms && agreedNotEmergency;
+  }, [
+    agreedBoundaries,
+    agreedConfidentiality,
+    agreedNotEmergency,
+    agreedTerms,
+    communicationStyle,
+    isTherapistFlow,
+    language,
+    selectedIntents.length,
+    selectedSpecialties.length,
+    sessionPref,
+    step,
+    therapistLanguages.length,
+  ]);
 
   const saveInitialCheckInIfProvided = async (userId: string) => {
     const sleepNum = Number.parseFloat(checkInSleep.replace(',', '.'));
@@ -261,16 +259,26 @@ export const OnboardingScreen: React.FC = () => {
   const completeOnboarding = async () => {
     if (!user) return;
 
+    if (!isTherapistFlow && remindersEnabled) {
+      const quietStartMinutes = parseTimeToMinutes(quietStart);
+      const quietEndMinutes = parseTimeToMinutes(quietEnd);
+      if (quietStartMinutes === null || quietEndMinutes === null || quietStartMinutes === quietEndMinutes) {
+        Alert.alert('Invalid quiet hours', 'Please select a valid quiet-hours range.');
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const trimmedName = firstName.trim();
+      const displayName = trimmedName || profile?.display_name || profile?.first_name || null;
 
       const { error: profileError } = await supabase
         .from('profiles')
         .update({
           first_name: trimmedName || profile?.first_name || null,
-          display_name: trimmedName || profile?.display_name || null,
-          language: isTherapistFlow ? profile?.language || 'English' : language,
+          display_name: displayName,
+          language: isTherapistFlow ? therapistLanguages[0] || profile?.language || 'English' : language,
           onboarding_completed: true,
           updated_at: new Date().toISOString(),
         })
@@ -284,17 +292,17 @@ export const OnboardingScreen: React.FC = () => {
           ? selectedSpecialties
           : selectedIntents.map((item) => normalizeIntentTag(item)),
         session_preference: sessionPref.toLowerCase() as 'chat' | 'video' | 'both',
-        wellbeing_reminders_enabled: remindersEnabled,
+        wellbeing_reminders_enabled: isTherapistFlow ? false : remindersEnabled,
         wellbeing_reminder_time: reminderTime,
         quiet_hours_start: quietStart,
         quiet_hours_end: quietEnd,
         therapist_gender_preference: genderPreference,
         time_preference: timePreference,
-        care_style_preference: careStylePreference,
-        journal_enabled: journalEnabled,
-        journal_sharing: journalEnabled ? journalSharing : 'none',
-        care_buddy_enabled: careBuddyEnabled,
-        engagement_mode: engagementMode,
+        care_style_preference: isTherapistFlow ? communicationStyle : careStylePreference,
+        journal_enabled: false,
+        journal_sharing: 'none',
+        care_buddy_enabled: isTherapistFlow ? true : careBuddyEnabled,
+        engagement_mode: isTherapistFlow ? 'balanced' : engagementMode,
         nudge_snooze_until: null,
       };
 
@@ -305,12 +313,13 @@ export const OnboardingScreen: React.FC = () => {
       if (prefError) throw prefError;
 
       if (isTherapistFlow) {
+        const finalHeadline = headline.trim() || `Psychologist · ${selectedSpecialties.slice(0, 2).join(' + ') || 'General Care'}`;
         const { error: therapistError } = await supabase
           .from('therapists')
           .upsert(
             {
               id: user.id,
-              headline: headline.trim(),
+              headline: finalHeadline,
               bio: `${communicationStyle}. Focused on collaborative and evidence-based care.`,
               languages: therapistLanguages,
               specialties: selectedSpecialties,
@@ -331,423 +340,415 @@ export const OnboardingScreen: React.FC = () => {
       }
 
       await refreshProfile();
-      if (progressStorageKey) {
-        await AsyncStorage.removeItem(progressStorageKey);
+      if (stepStorageKey) {
+        await AsyncStorage.removeItem(stepStorageKey);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Something went wrong saving onboarding.';
+      const message = error instanceof Error ? error.message : 'Something went wrong while saving onboarding.';
       Alert.alert('Unable to finish onboarding', message);
     } finally {
       setLoading(false);
     }
   };
 
-  const renderClientStep = () => {
-    switch (step) {
-      case 0:
-        return (
-          <View style={[styles.welcomeScreen, { minHeight: welcomeMinHeight }]}>
-            <View style={[styles.welcomeHalo, styles.welcomeHaloTop]} />
-            <View style={[styles.welcomeHalo, styles.welcomeHaloBottom]} />
-            <View style={styles.brandMark}>
-              <Ionicons name="leaf-outline" size={34} color={Colors.accent.primary} />
-            </View>
-            <Text style={styles.brandTitle}>Care Space</Text>
-            <Text style={styles.brandSubtitle}>A calm companion for your emotional wellbeing.</Text>
-            <Text style={styles.heroTitle}>{welcomeTitle}</Text>
-            <Text style={styles.heroSubtitle}>Private. Structured. No long-term commitment needed.</Text>
-            <Text style={styles.heroEmergency}>This is not for emergencies.</Text>
+  const welcomeMinHeight = Math.max(480, viewportHeight - 220);
+
+  const renderWelcome = () => (
+    <View
+      style={[
+        styles.welcomePanel,
+        isTherapistFlow && styles.welcomePanelTherapist,
+        { minHeight: welcomeMinHeight },
+      ]}
+    >
+      <View style={styles.welcomeHaloTop} />
+      <View style={styles.welcomeHaloBottom} />
+
+      <View style={styles.brandIconWrap}>
+        <Ionicons name="leaf-outline" size={34} color={Colors.accent.primary} />
+      </View>
+
+      <Text style={styles.brandName}>Care Space</Text>
+      <Text style={styles.brandTagline}>A calm place to care for your mind.</Text>
+
+      <Text style={styles.heroTitle}>
+        {isTherapistFlow
+          ? 'Build a warm, trusted practice in minutes.'
+          : 'Talk to a qualified psychologist, without awkward admin.'}
+      </Text>
+      <Text style={styles.heroSubtitle}>Private. Structured. No long-term commitment needed.</Text>
+
+      {!isTherapistFlow ? <Text style={styles.heroSafety}>This is not for emergencies.</Text> : null}
+
+      <View style={styles.welcomeInputWrap}>
+        <Text style={styles.fieldLabel}>What should we call you? (optional)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="First name"
+          placeholderTextColor={Colors.text.tertiary}
+          value={firstName}
+          onChangeText={setFirstName}
+          autoCapitalize="words"
+        />
+      </View>
+    </View>
+  );
+
+  const renderSharedFocus = () => {
+    if (isTherapistFlow) {
+      return (
+        <Card style={styles.stepCard}>
+          <Text style={styles.stepTitle}>What care areas are you focusing on?</Text>
+          <Text style={styles.stepSubtitle}>Pick up to 3 so clients find the right fit quickly.</Text>
+          <View style={styles.wrapRow}>
+            {THERAPIST_SPECIALTIES.map((item) => (
+              <PillChip
+                key={item}
+                label={item}
+                selected={selectedSpecialties.includes(item)}
+                onPress={() => toggleTag(item, selectedSpecialties, setSelectedSpecialties, 3)}
+              />
+            ))}
           </View>
-        );
-      case 1:
-        return (
-          <Card style={styles.stepCard}>
-            <Text style={styles.stepTitle}>What should we call you?</Text>
-            <Text style={styles.stepSubtitle}>Just your first name is enough.</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Your first name"
-              placeholderTextColor={Colors.text.tertiary}
-              value={firstName}
-              onChangeText={setFirstName}
-              autoCapitalize="words"
-              autoFocus
-            />
-          </Card>
-        );
-      case 2:
-        return (
-          <Card style={styles.stepCard}>
-            <Text style={styles.stepTitle}>What brings you here today?</Text>
-            <Text style={styles.stepSubtitle}>Pick up to 2. This helps us match without forcing labels.</Text>
-            <View style={styles.wrapRow}>
-              {CLIENT_INTENTS.map((intent) => (
-                <PillChip
-                  key={intent}
-                  label={intent}
-                  selected={selectedIntents.includes(intent)}
-                  onPress={() => toggleTag(intent, selectedIntents, setSelectedIntents, 2)}
-                />
-              ))}
-            </View>
-          </Card>
-        );
-      case 3:
-        return (
-          <View style={styles.stepContent}>
-            <Card style={styles.stepCard}>
-              <Text style={styles.stepTitle}>Preferences</Text>
-
-              <Text style={styles.fieldLabel}>Language</Text>
-              <View style={styles.row}>
-                {LANGUAGE_OPTIONS.map((item) => (
-                  <PillChip key={item} label={item} selected={language === item} onPress={() => setLanguage(item)} />
-                ))}
-              </View>
-
-              <Text style={styles.fieldLabel}>Session mode</Text>
-              <View style={styles.row}>
-                {SESSION_PREF_OPTIONS.map((item) => (
-                  <PillChip key={item} label={item} selected={sessionPref === item} onPress={() => setSessionPref(item)} />
-                ))}
-              </View>
-            </Card>
-
-            <Card style={styles.stepCard}>
-              <Text style={styles.fieldLabel}>Therapist gender preference (optional)</Text>
-              <View style={styles.wrapRow}>
-                {GENDER_PREF_OPTIONS.map((item) => (
-                  <PillChip
-                    key={item.value}
-                    label={item.label}
-                    selected={genderPreference === item.value}
-                    onPress={() => setGenderPreference(item.value)}
-                  />
-                ))}
-              </View>
-
-              <Text style={styles.fieldLabel}>Preferred time</Text>
-              <View style={styles.wrapRow}>
-                {TIME_PREF_OPTIONS.map((item) => (
-                  <PillChip
-                    key={item.value}
-                    label={item.label}
-                    selected={timePreference === item.value}
-                    onPress={() => setTimePreference(item.value)}
-                  />
-                ))}
-              </View>
-
-              <Text style={styles.fieldLabel}>Care style</Text>
-              <View style={styles.wrapRow}>
-                {CARE_STYLE_OPTIONS.map((item) => (
-                  <PillChip
-                    key={item}
-                    label={STYLE_CHIP_LABELS[item] || item}
-                    selected={careStylePreference === item}
-                    onPress={() => setCareStylePreference(item)}
-                  />
-                ))}
-              </View>
-            </Card>
-          </View>
-        );
-      case 4:
-        return (
-          <View style={styles.stepContent}>
-            <Card style={styles.stepCard}>
-              <Text style={styles.stepTitle}>Quick check-in (light and optional)</Text>
-              <Text style={styles.stepSubtitle}>This helps your first session start with less repetition.</Text>
-
-              <Text style={styles.fieldLabel}>How are you feeling today?</Text>
-              <View style={styles.wrapRow}>
-                {REFLECTION_MOODS.map((item) => (
-                  <PillChip
-                    key={item}
-                    label={MOOD_CHIP_LABELS[item] || item}
-                    selected={checkInMood === item}
-                    onPress={() => setCheckInMood(item)}
-                  />
-                ))}
-              </View>
-
-              <Text style={styles.fieldLabel}>Stress today (1-5)</Text>
-              <View style={styles.row}>
-                {[1, 2, 3, 4, 5].map((item) => (
-                  <PillChip
-                    key={item}
-                    label={`${item}`}
-                    selected={checkInStress === item}
-                    onPress={() => setCheckInStress(item)}
-                  />
-                ))}
-              </View>
-
-              <Text style={styles.fieldLabel}>Hours of sleep</Text>
-              <View style={styles.wrapRow}>
-                {SLEEP_OPTIONS.map((item) => (
-                  <PillChip
-                    key={item}
-                    label={`${item}h`}
-                    selected={checkInSleep === item}
-                    onPress={() => setCheckInSleep(item)}
-                  />
-                ))}
-              </View>
-              <Text style={styles.fieldHelper}>Tap to select. You can edit later in Daily Check-in.</Text>
-
-              <Text style={styles.fieldLabel}>Anything to share before your first session? (optional)</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="Optional note"
-                placeholderTextColor={Colors.text.tertiary}
-                multiline
-                value={checkInNote}
-                onChangeText={setCheckInNote}
-              />
-            </Card>
-
-            <Card style={styles.stepCard}>
-              <Text style={styles.fieldLabel}>Journaling</Text>
-              <CheckBox
-                checked={journalEnabled}
-                onPress={() => setJournalEnabled((prev) => !prev)}
-                label="Enable mood, stress, sleep, and note journaling"
-              />
-
-              {journalEnabled && (
-                <>
-                  <Text style={styles.fieldLabel}>Therapist visibility</Text>
-                  <View style={styles.wrapRow}>
-                    {JOURNAL_SHARE_OPTIONS.map((item) => (
-                      <PillChip
-                        key={item.value}
-                        label={item.label}
-                        selected={journalSharing === item.value}
-                        onPress={() => setJournalSharing(item.value)}
-                      />
-                    ))}
-                  </View>
-                </>
-              )}
-            </Card>
-
-            <Card style={styles.stepCard}>
-              <Text style={styles.fieldLabel}>Reminders (non-pushy)</Text>
-              <CheckBox
-                checked={remindersEnabled}
-                onPress={() => setRemindersEnabled((prev) => !prev)}
-                label="Enable gentle mood check-in reminders"
-              />
-
-              {remindersEnabled && (
-                <>
-                  <View style={styles.row}>
-                    {REMINDER_TIMES.map((item) => (
-                      <PillChip
-                        key={item}
-                        label={asTimeLabel(item)}
-                        selected={reminderTime === item}
-                        onPress={() => setReminderTime(item)}
-                      />
-                    ))}
-                  </View>
-                  <Text style={styles.fieldLabel}>Quiet hours start</Text>
-                  <View style={styles.row}>
-                    {QUIET_START_OPTIONS.map((item) => (
-                      <PillChip
-                        key={item}
-                        label={asTimeLabel(item)}
-                        selected={quietStart === item}
-                        onPress={() => setQuietStart(item)}
-                      />
-                    ))}
-                  </View>
-                  <Text style={styles.fieldLabel}>Quiet hours end</Text>
-                  <View style={styles.row}>
-                    {QUIET_END_OPTIONS.map((item) => (
-                      <PillChip
-                        key={item}
-                        label={asTimeLabel(item)}
-                        selected={quietEnd === item}
-                        onPress={() => setQuietEnd(item)}
-                      />
-                    ))}
-                  </View>
-                </>
-              )}
-            </Card>
-
-            <Card style={styles.stepCard}>
-              <Text style={styles.fieldLabel}>Care Buddy personality</Text>
-              <CheckBox
-                checked={careBuddyEnabled}
-                onPress={() => setCareBuddyEnabled((prev) => !prev)}
-                label="Enable friendly coaching copy in reminders and dashboards"
-              />
-              <Text style={styles.fieldLabel}>Engagement mode</Text>
-              <View style={styles.wrapRow}>
-                {ENGAGEMENT_OPTIONS.map((item) => (
-                  <PillChip
-                    key={item.value}
-                    label={item.label}
-                    selected={engagementMode === item.value}
-                    onPress={() => setEngagementMode(item.value)}
-                  />
-                ))}
-              </View>
-              <Text style={styles.fieldHelper}>Balanced is recommended for motivating but calm support.</Text>
-            </Card>
-          </View>
-        );
-      case 5:
-        return (
-          <Card style={styles.stepCard}>
-            <Text style={styles.stepTitle}>Safety and consent</Text>
-            <View style={styles.infoCard}>
-              <Ionicons name="information-circle-outline" size={18} color={Colors.accent.primary} />
-              <Text style={styles.infoText}>
-                Care Space is for psychological support and is not a substitute for emergency response.
-              </Text>
-            </View>
-
-            <CheckBox
-              checked={agreedNotEmergency}
-              onPress={() => setAgreedNotEmergency((prev) => !prev)}
-              label="I understand this is not emergency support"
-            />
-            <CheckBox
-              checked={agreedTerms}
-              onPress={() => setAgreedTerms((prev) => !prev)}
-              label="I agree to the terms of service"
-            />
-          </Card>
-        );
-      default:
-        return null;
+        </Card>
+      );
     }
+
+    return (
+      <Card style={styles.stepCard}>
+        <Text style={styles.stepTitle}>What brings you here today?</Text>
+        <Text style={styles.stepSubtitle}>Pick up to 2. This helps matching stay thoughtful.</Text>
+        <View style={styles.wrapRow}>
+          {CLIENT_INTENTS.map((intent) => (
+            <PillChip
+              key={intent}
+              label={intent}
+              selected={selectedIntents.includes(intent)}
+              onPress={() => toggleTag(intent, selectedIntents, setSelectedIntents, 2)}
+            />
+          ))}
+        </View>
+      </Card>
+    );
   };
 
-  const renderTherapistStep = () => {
-    switch (step) {
-      case 0:
-        return (
-          <View style={[styles.welcomeScreen, { minHeight: welcomeMinHeight }]}>
-            <View style={[styles.welcomeHalo, styles.welcomeHaloTop]} />
-            <View style={[styles.welcomeHalo, styles.welcomeHaloBottom]} />
-            <View style={styles.brandMark}>
-              <Ionicons name="leaf-outline" size={34} color={Colors.accent.primary} />
-            </View>
-            <Text style={styles.brandTitle}>Care Space</Text>
-            <Text style={styles.brandSubtitle}>A calm companion for your emotional wellbeing.</Text>
-            <Text style={styles.heroTitle}>{welcomeTitle}</Text>
-            <Text style={styles.heroSubtitle}>
-              Set up your profile so clients get a warm and trustworthy first impression.
-            </Text>
+  const renderSharedPreferences = () => (
+    <View style={styles.stepStack}>
+      <Card style={styles.stepCard}>
+        <Text style={styles.stepTitle}>Quick preferences</Text>
+
+        <Text style={styles.fieldLabel}>Language</Text>
+        <View style={styles.wrapRow}>
+          {LANGUAGE_OPTIONS.map((item) => (
+            <PillChip
+              key={item}
+              label={item}
+              selected={isTherapistFlow ? therapistLanguages.includes(item) : language === item}
+              onPress={() => {
+                if (isTherapistFlow) {
+                  toggleTag(item, therapistLanguages, setTherapistLanguages);
+                } else {
+                  setLanguage(item);
+                }
+              }}
+            />
+          ))}
+        </View>
+
+        <Text style={styles.fieldLabel}>Preferred mode</Text>
+        <View style={styles.wrapRow}>
+          {SESSION_PREF_OPTIONS.map((item) => (
+            <PillChip
+              key={item}
+              label={item}
+              selected={sessionPref === item}
+              onPress={() => setSessionPref(item)}
+            />
+          ))}
+        </View>
+
+        <Text style={styles.fieldLabel}>Preferred time</Text>
+        <View style={styles.wrapRow}>
+          {TIME_PREF_OPTIONS.map((item) => (
+            <PillChip
+              key={item.value}
+              label={item.label}
+              selected={timePreference === item.value}
+              onPress={() => setTimePreference(item.value)}
+            />
+          ))}
+        </View>
+      </Card>
+
+      {!isTherapistFlow ? (
+        <Card style={styles.stepCard}>
+          <Text style={styles.fieldLabel}>Therapist gender preference</Text>
+          <View style={styles.wrapRow}>
+            {GENDER_PREF_OPTIONS.map((item) => (
+              <PillChip
+                key={item.value}
+                label={item.label}
+                selected={genderPreference === item.value}
+                onPress={() => setGenderPreference(item.value)}
+              />
+            ))}
           </View>
-        );
-      case 1:
-        return (
-          <Card style={styles.stepCard}>
-            <Text style={styles.stepTitle}>Profile intro</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="First name"
-              placeholderTextColor={Colors.text.tertiary}
-              value={firstName}
-              onChangeText={setFirstName}
-              autoCapitalize="words"
-              autoFocus
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Headline (e.g. Clinical Psychologist · CBT)"
-              placeholderTextColor={Colors.text.tertiary}
-              value={headline}
-              onChangeText={setHeadline}
-            />
-          </Card>
-        );
-      case 2:
-        return (
-          <Card style={styles.stepCard}>
-            <Text style={styles.stepTitle}>Expertise and languages</Text>
-            <Text style={styles.fieldLabel}>Specialties</Text>
+
+          <Text style={styles.fieldLabel}>Care style preference</Text>
+          <View style={styles.wrapRow}>
+            {CARE_STYLE_OPTIONS.map((item) => (
+              <PillChip
+                key={item}
+                label={item}
+                selected={careStylePreference === item}
+                onPress={() => setCareStylePreference(item)}
+              />
+            ))}
+          </View>
+        </Card>
+      ) : null}
+    </View>
+  );
+
+  const renderClientBaseline = () => (
+    <Card style={styles.stepCard}>
+      <Text style={styles.stepTitle}>How are you feeling today?</Text>
+      <Text style={styles.stepSubtitle}>Fast check-in to make your first session easier.</Text>
+
+      <Text style={styles.fieldLabel}>Mood</Text>
+      <View style={styles.wrapRow}>
+        {REFLECTION_MOODS.map((item) => (
+          <PillChip
+            key={item}
+            label={item}
+            selected={checkInMood === item}
+            onPress={() => setCheckInMood(item)}
+          />
+        ))}
+      </View>
+
+      <Text style={styles.fieldLabel}>Stress today (1-5)</Text>
+      <View style={styles.wrapRow}>
+        {[1, 2, 3, 4, 5].map((item) => (
+          <PillChip
+            key={item}
+            label={`${item}`}
+            selected={checkInStress === item}
+            onPress={() => setCheckInStress(item)}
+          />
+        ))}
+      </View>
+
+      <Text style={styles.fieldLabel}>Hours of sleep</Text>
+      <View style={styles.wrapRow}>
+        {SLEEP_OPTIONS.map((item) => (
+          <PillChip
+            key={item}
+            label={`${item}h`}
+            selected={checkInSleep === item}
+            onPress={() => setCheckInSleep(item)}
+          />
+        ))}
+      </View>
+
+      <Text style={styles.fieldLabel}>Optional note</Text>
+      <TextInput
+        style={[styles.input, styles.textArea]}
+        placeholder="Anything to share before your first session?"
+        placeholderTextColor={Colors.text.tertiary}
+        multiline
+        value={checkInNote}
+        onChangeText={setCheckInNote}
+      />
+    </Card>
+  );
+
+  const renderTherapistPractice = () => (
+    <Card style={styles.stepCard}>
+      <Text style={styles.stepTitle}>Practice setup</Text>
+
+      <Text style={styles.fieldLabel}>Communication style</Text>
+      <View style={styles.wrapRow}>
+        {THERAPIST_STYLE_OPTIONS.map((item) => (
+          <PillChip
+            key={item}
+            label={item}
+            selected={communicationStyle === item}
+            onPress={() => setCommunicationStyle(item)}
+          />
+        ))}
+      </View>
+
+      <Text style={styles.fieldLabel}>Profile headline (optional)</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Clinical Psychologist · CBT"
+        placeholderTextColor={Colors.text.tertiary}
+        value={headline}
+        onChangeText={setHeadline}
+      />
+
+      <Text style={styles.fieldHelper}>You can refine this later in Edit Profile.</Text>
+    </Card>
+  );
+
+  const renderClientCareBuddy = () => (
+    <View style={styles.stepStack}>
+      <Card style={styles.stepCard}>
+        <Text style={styles.stepTitle}>Care Buddy settings</Text>
+
+        <CheckBox
+          checked={remindersEnabled}
+          onPress={() => setRemindersEnabled((prev) => !prev)}
+          label="Enable gentle wellbeing reminders"
+        />
+
+        {remindersEnabled ? (
+          <>
+            <Text style={styles.fieldLabel}>Reminder time</Text>
             <View style={styles.wrapRow}>
-              {THERAPIST_SPECIALTIES.map((item) => (
+              {REMINDER_TIMES.map((item) => (
                 <PillChip
                   key={item}
-                  label={item}
-                  selected={selectedSpecialties.includes(item)}
-                  onPress={() => toggleTag(item, selectedSpecialties, setSelectedSpecialties)}
+                  label={asTimeLabel(item)}
+                  selected={reminderTime === item}
+                  onPress={() => setReminderTime(item)}
                 />
               ))}
             </View>
 
-            <Text style={styles.fieldLabel}>Languages</Text>
-            <View style={styles.row}>
-              {LANGUAGE_OPTIONS.map((item) => (
-                <PillChip
-                  key={item}
-                  label={item}
-                  selected={therapistLanguages.includes(item)}
-                  onPress={() => toggleTag(item, therapistLanguages, setTherapistLanguages)}
-                />
-              ))}
-            </View>
-          </Card>
-        );
-      case 3:
-        return (
-          <Card style={styles.stepCard}>
-            <Text style={styles.stepTitle}>Practice preferences</Text>
-            <Text style={styles.fieldLabel}>Session mode</Text>
-            <View style={styles.row}>
-              {SESSION_PREF_OPTIONS.map((item) => (
-                <PillChip key={item} label={item} selected={sessionPref === item} onPress={() => setSessionPref(item)} />
-              ))}
-            </View>
-
-            <Text style={styles.fieldLabel}>Communication style</Text>
+            <Text style={styles.fieldLabel}>Quiet hours</Text>
             <View style={styles.wrapRow}>
-              {THERAPIST_STYLE_OPTIONS.map((item) => (
+              {QUIET_START_OPTIONS.map((item) => (
                 <PillChip
                   key={item}
-                  label={item}
-                  selected={communicationStyle === item}
-                  onPress={() => setCommunicationStyle(item)}
+                  label={`Start ${asTimeLabel(item)}`}
+                  selected={quietStart === item}
+                  onPress={() => setQuietStart(item)}
                 />
               ))}
             </View>
-          </Card>
-        );
-      case 4:
-        return (
-          <Card style={styles.stepCard}>
-            <Text style={styles.stepTitle}>Compliance checks</Text>
-            <CheckBox
-              checked={agreedConfidentiality}
-              onPress={() => setAgreedConfidentiality((prev) => !prev)}
-              label="I commit to confidentiality and secure communication"
+            <View style={styles.wrapRow}>
+              {QUIET_END_OPTIONS.map((item) => (
+                <PillChip
+                  key={item}
+                  label={`End ${asTimeLabel(item)}`}
+                  selected={quietEnd === item}
+                  onPress={() => setQuietEnd(item)}
+                />
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        <CheckBox
+          checked={careBuddyEnabled}
+          onPress={() => setCareBuddyEnabled((prev) => !prev)}
+          label="Show supportive Care Buddy guidance in the app"
+        />
+
+        <Text style={styles.fieldLabel}>Engagement mode</Text>
+        <View style={styles.wrapRow}>
+          {ENGAGEMENT_OPTIONS.map((item) => (
+            <PillChip
+              key={item.value}
+              label={item.label}
+              selected={engagementMode === item.value}
+              onPress={() => setEngagementMode(item.value)}
             />
-            <CheckBox
-              checked={agreedBoundaries}
-              onPress={() => setAgreedBoundaries((prev) => !prev)}
-              label="I acknowledge crisis escalation and professional boundaries"
-            />
-          </Card>
-        );
-      default:
-        return null;
-    }
+          ))}
+        </View>
+      </Card>
+
+      <Card style={styles.stepCard}>
+        <Text style={styles.stepTitle}>Safety consent</Text>
+        <CheckBox
+          checked={agreedNotEmergency}
+          onPress={() => setAgreedNotEmergency((prev) => !prev)}
+          label="I understand this app is not emergency support"
+        />
+        <CheckBox
+          checked={agreedTerms}
+          onPress={() => setAgreedTerms((prev) => !prev)}
+          label="I agree to the terms of service"
+        />
+      </Card>
+    </View>
+  );
+
+  const renderTherapistCompliance = () => (
+    <Card style={styles.stepCard}>
+      <Text style={styles.stepTitle}>Availability and compliance</Text>
+      <Text style={styles.stepSubtitle}>You can edit slots later from your schedule module.</Text>
+
+      <CheckBox
+        checked={agreedConfidentiality}
+        onPress={() => setAgreedConfidentiality((prev) => !prev)}
+        label="I commit to confidentiality and secure communication"
+      />
+      <CheckBox
+        checked={agreedBoundaries}
+        onPress={() => setAgreedBoundaries((prev) => !prev)}
+        label="I acknowledge crisis escalation and professional boundaries"
+      />
+    </Card>
+  );
+
+  const renderStepContent = () => {
+    if (step === 0) return renderWelcome();
+    if (step === 1) return renderSharedFocus();
+    if (step === 2) return renderSharedPreferences();
+    if (step === 3) return isTherapistFlow ? renderTherapistPractice() : renderClientBaseline();
+    return isTherapistFlow ? renderTherapistCompliance() : renderClientCareBuddy();
   };
+
+  const progressDots = Array.from({ length: totalSteps });
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <View style={styles.progressContainer}>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: progressPercent }]} />
+      <View style={styles.topNav}>
+        <TouchableOpacity
+          style={[styles.navSquircle, step === 0 && styles.navSquircleGhost]}
+          onPress={() => setStep((prev) => Math.max(prev - 1, 0))}
+          disabled={step === 0}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="chevron-back" size={18} color={step === 0 ? Colors.text.tertiary : Colors.text.primary} />
+        </TouchableOpacity>
+
+        <View style={styles.progressDotsRow}>
+          {progressDots.map((_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.progressDot,
+                index <= step && styles.progressDotActive,
+                index === step && styles.progressDotCurrent,
+              ]}
+            />
+          ))}
         </View>
+
+        <TouchableOpacity
+          style={styles.navSquircle}
+          onPress={() => {
+            if (step === 0) {
+              setStep(1);
+              return;
+            }
+            Alert.alert('Need help?', 'You can skip optional fields and change these settings later in Profile.');
+          }}
+          activeOpacity={0.8}
+        >
+          <Ionicons name={step === 0 ? 'play-forward-outline' : 'help-outline'} size={17} color={Colors.text.primary} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.stepMetaRow}>
+        <View style={styles.stepMetaTopRow}>
+          <Text style={styles.stepMeta}>{`Step ${step + 1} of ${totalSteps}`}</Text>
+        </View>
+        <Text style={styles.stepMetaTitle}>{getStepTitle(isTherapistFlow, step)}</Text>
       </View>
 
       <KeyboardAvoidingView
@@ -755,30 +756,30 @@ export const OnboardingScreen: React.FC = () => {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
-          contentContainerStyle={[styles.scrollContent, step === 0 ? styles.scrollContentWelcome : styles.scrollContentSteps]}
+          contentContainerStyle={[styles.scrollContent, step === 0 ? styles.scrollWelcome : styles.scrollSteps]}
           keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
           <Animated.View style={{ opacity: fade }}>
-            {isTherapistFlow ? renderTherapistStep() : renderClientStep()}
+            {renderStepContent()}
           </Animated.View>
         </ScrollView>
 
         <View style={styles.bottomBar}>
-          {step > 0 && (
-            <Button
-              title="Back"
-              variant="ghost"
-              fullWidth={false}
-              onPress={() => setStep((prev) => Math.max(prev - 1, 0))}
-              style={styles.backBtn}
-            />
-          )}
+          <TouchableOpacity
+            style={[styles.backCircleBtn, step === 0 && styles.backCircleBtnDisabled]}
+            onPress={() => setStep((prev) => Math.max(prev - 1, 0))}
+            disabled={step === 0}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="chevron-back" size={18} color={step === 0 ? Colors.text.tertiary : Colors.text.primary} />
+          </TouchableOpacity>
+
           <View style={styles.flexGrow}>
             <Button
-              title={step === totalSteps - 1 ? 'Finish' : 'Continue'}
+              title={step === totalSteps - 1 ? 'Done' : 'Continue'}
               onPress={step === totalSteps - 1 ? completeOnboarding : () => setStep((prev) => prev + 1)}
-              disabled={!canProceed()}
+              disabled={!canProceed}
               loading={loading}
               size="lg"
             />
@@ -796,7 +797,7 @@ const CheckBox: React.FC<{ checked: boolean; onPress: () => void; label: string 
 }) => (
   <Pressable onPress={onPress} style={checkStyles.row}>
     <View style={[checkStyles.box, checked && checkStyles.checked]}>
-      {checked && <Ionicons name="checkmark" size={14} color="#fff" />}
+      {checked ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
     </View>
     <Text style={checkStyles.label}>{label}</Text>
   </Pressable>
@@ -809,15 +810,16 @@ const checkStyles = StyleSheet.create({
     gap: Spacing.sm,
     paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.sm,
-    borderRadius: Radius.md,
+    borderRadius: 16,
     backgroundColor: Colors.bg.secondary,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
+    marginTop: Spacing.sm,
   },
   box: {
     width: 22,
     height: 22,
-    borderRadius: 6,
+    borderRadius: 8,
     borderWidth: 1.5,
     borderColor: Colors.stroke.subtle,
     alignItems: 'center',
@@ -842,68 +844,111 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  progressContainer: {
+  topNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.sm,
+    paddingTop: Spacing.xs,
   },
-  progressTrack: {
-    height: 6,
+  navSquircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.bg.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navSquircleGhost: {
+    backgroundColor: Colors.bg.primary,
+  },
+  progressDotsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  progressDot: {
+    width: 18,
+    height: 4,
     borderRadius: Radius.pill,
     backgroundColor: Colors.ui.divider,
-    overflow: 'hidden',
   },
-  progressFill: {
-    height: '100%',
+  progressDotActive: {
+    backgroundColor: Colors.accent.primary + '80',
+  },
+  progressDotCurrent: {
     backgroundColor: Colors.accent.primary,
+    width: 26,
+  },
+  stepMetaRow: {
+    marginTop: Spacing.sm,
+    paddingHorizontal: Spacing.xl,
+  },
+  stepMetaTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  stepMeta: {
+    ...Typography.micro,
+    color: Colors.text.tertiary,
+  },
+  stepMetaTitle: {
+    ...Typography.title3,
+    color: Colors.text.primary,
+    marginTop: 2,
   },
   scrollContent: {
     paddingHorizontal: Spacing.xl,
-  },
-  scrollContentWelcome: {
-    flexGrow: 1,
-    justifyContent: 'center',
     paddingBottom: Spacing.xxl,
   },
-  scrollContentSteps: {
+  scrollWelcome: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.xxl,
   },
-  welcomeScreen: {
+  scrollSteps: {
+    flexGrow: 1,
+    justifyContent: 'flex-end',
+    paddingTop: Spacing.md,
+  },
+  welcomePanel: {
     backgroundColor: Colors.accent.soft,
-    borderRadius: Radius.xl,
+    borderRadius: 30,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
     paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.xxl,
-    alignItems: 'flex-start',
     justifyContent: 'center',
-    overflow: 'hidden',
     gap: Spacing.sm,
+    overflow: 'hidden',
   },
-  welcomeHalo: {
-    position: 'absolute',
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.28)',
+  welcomePanelTherapist: {
+    backgroundColor: Colors.status.warningSoft,
   },
   welcomeHaloTop: {
-    width: 180,
-    height: 180,
-    top: -70,
-    right: -40,
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: Radius.pill,
+    top: -80,
+    right: -60,
+    backgroundColor: 'rgba(255,255,255,0.28)',
   },
   welcomeHaloBottom: {
+    position: 'absolute',
     width: 120,
     height: 120,
-    bottom: -40,
-    left: -28,
+    borderRadius: Radius.pill,
+    bottom: -38,
+    left: -24,
+    backgroundColor: 'rgba(255,255,255,0.28)',
   },
-  brandMark: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+  brandIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
     backgroundColor: Colors.bg.primary,
@@ -911,7 +956,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: Spacing.xs,
   },
-  brandTitle: {
+  brandName: {
     ...Typography.title1,
     color: Colors.text.primary,
     fontFamily: Platform.select({
@@ -921,30 +966,34 @@ const styles = StyleSheet.create({
     }),
     letterSpacing: 0.2,
   },
-  brandSubtitle: {
+  brandTagline: {
     ...Typography.body,
     color: Colors.text.secondary,
   },
   heroTitle: {
     ...Typography.title2,
     color: Colors.text.primary,
+    marginTop: Spacing.sm,
   },
   heroSubtitle: {
     ...Typography.body,
     color: Colors.text.secondary,
     lineHeight: 22,
   },
-  heroEmergency: {
+  heroSafety: {
     ...Typography.captionEmphasis,
     color: Colors.status.warning,
     marginTop: 2,
   },
-  stepContent: {
-    marginTop: Spacing.sm,
+  welcomeInputWrap: {
+    marginTop: Spacing.md,
+  },
+  stepStack: {
     gap: Spacing.sm,
   },
   stepCard: {
     gap: Spacing.xs,
+    borderRadius: 24,
   },
   stepTitle: {
     ...Typography.title2,
@@ -953,20 +1002,6 @@ const styles = StyleSheet.create({
   stepSubtitle: {
     ...Typography.body,
     color: Colors.text.secondary,
-  },
-  input: {
-    backgroundColor: Colors.bg.secondary,
-    borderRadius: Radius.lg,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    ...Typography.body,
-    color: Colors.text.primary,
-    borderWidth: 1,
-    borderColor: Colors.stroke.subtle,
-  },
-  textArea: {
-    minHeight: 84,
-    textAlignVertical: 'top',
   },
   fieldLabel: {
     ...Typography.captionEmphasis,
@@ -978,27 +1013,26 @@ const styles = StyleSheet.create({
     color: Colors.text.tertiary,
     marginTop: 2,
   },
-  row: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.xs,
+  input: {
+    backgroundColor: Colors.bg.secondary,
+    borderRadius: 16,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    ...Typography.body,
+    color: Colors.text.primary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    marginTop: Spacing.xs,
+  },
+  textArea: {
+    minHeight: 84,
+    textAlignVertical: 'top',
   },
   wrapRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.xs,
-  },
-  infoCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.xs,
-    backgroundColor: Colors.bg.secondary,
-  },
-  infoText: {
-    ...Typography.caption,
-    color: Colors.text.secondary,
-    flex: 1,
-    lineHeight: 18,
+    marginTop: Spacing.xs,
   },
   bottomBar: {
     flexDirection: 'row',
@@ -1010,8 +1044,18 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.stroke.subtle,
     backgroundColor: Colors.bg.primary,
   },
-  backBtn: {
-    minWidth: 80,
+  backCircleBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.bg.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backCircleBtnDisabled: {
+    opacity: 0.45,
   },
   flexGrow: {
     flex: 1,

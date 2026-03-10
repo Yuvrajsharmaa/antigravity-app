@@ -6,12 +6,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
-import { BackendSetupCard } from '../../core/components';
+import { BackendSetupCard, EmptyState } from '../../core/components';
 import { useClientMetricsReadiness } from '../../core/hooks/useClientMetricsReadiness';
+import { useAuth } from '../../core/context/AuthContext';
 
 export const ClientDetailScreen: React.FC = () => {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
+  const { isTherapistMode, canUseTherapistMode } = useAuth();
   const { clientId, clientName } = route.params || {};
   const { ready, requiresSetup, issue, refresh } = useClientMetricsReadiness();
 
@@ -20,7 +22,7 @@ export const ClientDetailScreen: React.FC = () => {
 
   useFocusEffect(
     React.useCallback(() => {
-      if (!clientId) return;
+      if (!clientId || !canUseTherapistMode || !isTherapistMode) return;
       
       const fetchMetrics = async () => {
         setLoading(true);
@@ -41,7 +43,7 @@ export const ClientDetailScreen: React.FC = () => {
       };
 
       fetchMetrics();
-    }, [clientId, ready])
+    }, [canUseTherapistMode, clientId, isTherapistMode, ready])
   );
 
   const formatDate = (isoStr: string) => {
@@ -61,6 +63,14 @@ export const ClientDetailScreen: React.FC = () => {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {!canUseTherapistMode || !isTherapistMode ? (
+          <EmptyState
+            icon="shield-checkmark-outline"
+            title="Therapist mode required"
+            message="Client notes are available only in therapist mode."
+          />
+        ) : (
+          <>
         <Text style={styles.sectionTitle}>Metric Logs Timeline</Text>
 
         {requiresSetup && (
@@ -111,6 +121,8 @@ export const ClientDetailScreen: React.FC = () => {
               )}
             </View>
           ))
+        )}
+        </>
         )}
       </ScrollView>
     </SafeAreaView>

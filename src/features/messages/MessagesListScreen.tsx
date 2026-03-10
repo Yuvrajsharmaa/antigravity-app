@@ -8,9 +8,11 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Colors, Typography, Spacing } from '../../core/theme';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { Colors, Radius, Typography, Spacing } from '../../core/theme';
 import { Avatar, EmptyState, LoadingState, ErrorState } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
+import { getRoleModeContract } from '../../core/utils/roleAccess';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -27,7 +29,9 @@ interface ConversationItem {
 }
 
 export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { user, isTherapistMode } = useAuth();
+  const { user, isTherapistMode, profile } = useAuth();
+  const tabBarHeight = useBottomTabBarHeight();
+  const roleMode = getRoleModeContract(profile?.role, isTherapistMode);
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -37,9 +41,8 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
     if (!user) return;
     try {
       setLoadError(null);
-      // Fetch conversations where user is either the client OR the therapist
       const columnToMatch = isTherapistMode ? 'therapist_id' : 'user_id';
-      
+
       const { data, error } = await supabase
         .from('conversations')
         .select(`
@@ -50,67 +53,84 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
         .eq(columnToMatch, user.id)
         .order('last_message_at', { ascending: false, nullsFirst: false });
 
-      if (!error && data) {
-        const mapped: ConversationItem[] = [];
-        
-        for (const c of data) {
-          let name = 'User';
-          let avatar = null;
-          let otherId = c.therapist_id;
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        setConversations([]);
+        return;
+      }
 
-          if (isTherapistMode) {
-            const uProfile = Array.isArray(c.users) ? c.users[0] : c.users;
-            name = uProfile?.display_name || uProfile?.first_name || 'Client';
-            avatar = uProfile?.avatar_url;
-            otherId = c.user_id;
-          } else {
-            // Arrays are sometimes returned by postgrest depending on relationships
-            const tProfile = Array.isArray(c.therapists) ? (c.therapists[0] as any)?.profiles : (c.therapists as any)?.profiles;
-            name = tProfile?.display_name || 'Therapist';
-            avatar = tProfile?.avatar_url;
-          }
+      const conversationIds = data.map((row) => row.id);
+      const otherIds = data
+        .map((row) => (isTherapistMode ? row.user_id : row.therapist_id))
+        .filter((id): id is string => Boolean(id));
 
-          const convItem: ConversationItem = {
-            id: c.id,
-            other_id: otherId,
-            other_name: name,
-            other_avatar: avatar,
-            last_message: null,
-            last_message_at: c.last_message_at,
-            unread: false,
-            awaiting_reply: false,
-            recent_mood: null,
-          };
-
-          // Fetch last message for each conversation
-          const { data: msgs } = await supabase
-            .from('messages')
-            .select('body,sender_id')
-            .eq('conversation_id', convItem.id)
-            .order('created_at', { ascending: false })
-            .limit(1);
-
-          if (msgs && msgs.length > 0) {
-            convItem.last_message = msgs[0].body;
-            convItem.awaiting_reply = msgs[0].sender_id !== user.id;
-          }
-
-          if (isTherapistMode && otherId) {
-            const { data: latestMood } = await supabase
+      const [{ data: allMessages }, moodResult] = await Promise.all([
+        supabase
+          .from('messages')
+          .select('conversation_id,body,sender_id,created_at')
+          .in('conversation_id', conversationIds)
+          .order('created_at', { ascending: false }),
+        isTherapistMode && otherIds.length > 0
+          ? supabase
               .from('client_metrics')
-              .select('mood')
-              .eq('user_id', otherId)
+              .select('user_id,mood,created_at')
+              .in('user_id', otherIds)
               .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
+          : Promise.resolve({ data: null, error: null } as { data: null; error: null }),
+      ]);
 
-            convItem.recent_mood = latestMood?.mood || null;
+      const latestByConversation = new Map<string, { body: string; sender_id: string }>();
+      for (const message of allMessages || []) {
+        if (!latestByConversation.has(message.conversation_id)) {
+          latestByConversation.set(message.conversation_id, {
+            body: message.body,
+            sender_id: message.sender_id,
+          });
+        }
+      }
+
+      const latestMoodByUser = new Map<string, string>();
+      if (!moodResult.error) {
+        for (const metric of moodResult.data || []) {
+          if (!latestMoodByUser.has(metric.user_id)) {
+            latestMoodByUser.set(metric.user_id, metric.mood);
           }
-          mapped.push(convItem);
+        }
+      }
+
+      const mapped: ConversationItem[] = data.map((c) => {
+        let name = 'User';
+        let avatar = null;
+        let otherId = c.therapist_id;
+
+        if (isTherapistMode) {
+          const uProfile = Array.isArray(c.users) ? c.users[0] : c.users;
+          name = uProfile?.display_name || uProfile?.first_name || 'Client';
+          avatar = uProfile?.avatar_url;
+          otherId = c.user_id;
+        } else {
+          const tProfile = Array.isArray(c.therapists)
+            ? (c.therapists[0] as any)?.profiles
+            : (c.therapists as any)?.profiles;
+          name = tProfile?.display_name || 'Therapist';
+          avatar = tProfile?.avatar_url;
         }
 
-        setConversations(mapped);
-      }
+        const latestMessage = latestByConversation.get(c.id);
+        return {
+          id: c.id,
+          other_id: otherId,
+          other_name: name,
+          other_avatar: avatar,
+          last_message: latestMessage?.body || null,
+          last_message_at: c.last_message_at,
+          unread: false,
+          awaiting_reply: Boolean(latestMessage && latestMessage.sender_id !== user.id),
+          recent_mood: isTherapistMode && otherId ? latestMoodByUser.get(otherId) || null : null,
+        };
+      });
+
+      setConversations(mapped);
     } catch (err) {
       console.error(err);
       setLoadError('Unable to load conversations right now.');
@@ -184,16 +204,20 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
         <EmptyState
           icon="chatbubbles-outline"
           title="No messages yet"
-          message="Start a conversation with a therapist from their profile."
-          actionLabel="Browse therapists"
-          onAction={() => navigation.navigate('HomeTab')}
+          message={
+            roleMode.canAccessMatchFlow
+              ? 'Start by completing therapist match to open your first conversation.'
+              : 'Client conversations will appear here once they message you.'
+          }
+          actionLabel={roleMode.canAccessMatchFlow ? 'Go to Match' : undefined}
+          onAction={roleMode.canAccessMatchFlow ? () => navigation.navigate('MatchTab') : undefined}
         />
       ) : (
         <FlatList
           data={conversations}
           renderItem={renderConversation}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: tabBarHeight + Spacing.xxl }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetch(); }} tintColor={Colors.accent.primary} />
@@ -223,6 +247,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.sm,
     paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.bg.secondary,
   },
   convContent: { flex: 1 },
   convHeader: {
@@ -252,8 +281,6 @@ const styles = StyleSheet.create({
     color: Colors.accent.primary,
   },
   separator: {
-    height: 1,
-    backgroundColor: Colors.ui.divider,
-    marginLeft: 60,
+    height: Spacing.xs,
   },
 });

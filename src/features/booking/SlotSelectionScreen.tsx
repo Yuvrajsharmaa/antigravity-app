@@ -11,18 +11,19 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Button, Card, Avatar } from '../../core/components';
+import { Button, Card, Avatar, ErrorState } from '../../core/components';
 import { Therapist, AvailabilitySlot } from '../../core/models/types';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../core/context/AuthContext';
 import { ensureConversation } from '../../core/services/careFlowService';
 import { asDependencyState, dependenciesReady, describeBlockingDependency } from '../../core/utils/flowDependencies';
+import { SlotSelectionRouteParams } from '../../navigation/types';
 
 export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
-  const { therapist } = route.params as { therapist: Therapist };
+  const { therapist } = (route.params || {}) as SlotSelectionRouteParams;
   const { user } = useAuth();
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -42,7 +43,7 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
 
   useEffect(() => {
     if (selectedDate) fetchSlots();
-  }, [selectedDate]);
+  }, [selectedDate, therapist?.id]);
 
   const fetchSlots = async () => {
     if (!selectedDate) return;
@@ -144,6 +145,17 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
 
   const { morning, afternoon, evening } = groupSlotsByPeriod();
   const formatTime = (d: string) => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  if (!therapist?.id) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <ErrorState
+          message="Therapist details are missing. Reopen this flow from Match."
+          onRetry={() => navigation.goBack()}
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -319,7 +331,7 @@ const styles = StyleSheet.create({
     width: 64,
     alignItems: 'center',
     paddingVertical: Spacing.sm,
-    borderRadius: Radius.lg,
+    borderRadius: Radius.xl,
     backgroundColor: Colors.bg.secondary,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
@@ -339,7 +351,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: Spacing.sm,
-    borderRadius: Radius.lg,
+    borderRadius: Radius.xl,
     backgroundColor: Colors.bg.secondary,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
@@ -360,7 +372,7 @@ const styles = StyleSheet.create({
   slotBtn: {
     paddingVertical: Spacing.xs,
     paddingHorizontal: Spacing.md,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     backgroundColor: Colors.bg.secondary,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
@@ -380,7 +392,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.bg.secondary,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
-    borderRadius: Radius.lg,
+    borderRadius: Radius.xl,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
   },

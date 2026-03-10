@@ -36,14 +36,14 @@ const styles = StyleSheet.create({
   chip: {
     paddingVertical: Spacing.xs,
     paddingHorizontal: Spacing.md,
-    borderRadius: Radius.pill,
-    borderWidth: 1.5,
+    borderRadius: Radius.md,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 36,
   },
   selected: {
-    backgroundColor: Colors.accent.primary,
+    backgroundColor: Colors.accent.soft,
     borderColor: Colors.accent.primary,
   },
   unselected: {
@@ -54,7 +54,7 @@ const styles = StyleSheet.create({
     ...Typography.captionEmphasis,
   },
   selectedLabel: {
-    color: Colors.text.inverse,
+    color: Colors.accent.dark,
   },
   unselectedLabel: {
     color: Colors.text.secondary,

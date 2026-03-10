@@ -10,7 +10,11 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useClientMetricsReadiness } from '../../core/hooks/useClientMetricsReadiness';
 import { assessCareRisk, riskPriority } from '../../core/utils/careRisk';
 import { RiskLevel } from '../../core/models/types';
-import { confirmBookingAndEnsureSession, createCareNudgeEvent } from '../../core/services/careFlowService';
+import {
+  confirmBookingAndEnsureSession,
+  createCareNudgeEvent,
+  getNudgeCooldownState,
+} from '../../core/services/careFlowService';
 import { therapistNudgePrefill } from '../../core/utils/careBuddy';
 
 interface DashboardClient {
@@ -22,6 +26,9 @@ interface DashboardClient {
   riskLevel: RiskLevel;
   hasAutoNudge: boolean;
   lastNudgeAt: string | null;
+  rhythmDays: number;
+  reasonChips: string[];
+  openingPrompt: string;
 }
 
 interface UpcomingSession {
@@ -45,8 +52,38 @@ const getFirst = <T,>(value: T | T[] | null | undefined): T | undefined => {
   return Array.isArray(value) ? value[0] : value;
 };
 
+const toDateKey = (iso: string) => new Date(iso).toISOString().slice(0, 10);
+
+const computeRhythmDays = (metrics: Array<{ created_at: string }>) => {
+  if (!metrics.length) return 0;
+  const daySet = new Set(metrics.map((item) => toDateKey(item.created_at)));
+  let streak = 0;
+  const cursor = new Date();
+  cursor.setHours(0, 0, 0, 0);
+  while (daySet.has(toDateKey(cursor.toISOString()))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  if (streak > 0) return streak;
+
+  const yesterday = new Date();
+  yesterday.setHours(0, 0, 0, 0);
+  yesterday.setDate(yesterday.getDate() - 1);
+  while (daySet.has(toDateKey(yesterday.toISOString()))) {
+    streak += 1;
+    yesterday.setDate(yesterday.getDate() - 1);
+  }
+  return streak;
+};
+
+const openingPromptForRisk = (riskLevel: RiskLevel) => {
+  if (riskLevel === 'high') return 'Start gently: “How has this week felt in your body and mind?”';
+  if (riskLevel === 'medium') return 'Start with progress + strain: “What improved, and what still feels heavy?”';
+  return 'Start with continuity: “What would make today’s session most useful for you?”';
+};
+
 export const TherapistDashboardScreen: React.FC = () => {
-  const { profile, user } = useAuth();
+  const { profile, user, isTherapistMode, canUseTherapistMode } = useAuth();
   const navigation = useNavigation<any>();
   const { ready, requiresSetup, issue, refresh } = useClientMetricsReadiness();
 
@@ -83,7 +120,7 @@ export const TherapistDashboardScreen: React.FC = () => {
       if (ready && clientIds.length > 0) {
         const { data: metrics, error: metricsError } = await supabase
           .from('client_metrics')
-          .select('user_id, stress_level, care_score_snapshot, created_at')
+          .select('user_id, mood, stress_level, sleep_hours, care_score_snapshot, created_at')
           .in('user_id', clientIds)
           .order('created_at', { ascending: false });
 
@@ -121,6 +158,23 @@ export const TherapistDashboardScreen: React.FC = () => {
         const clientMetrics = clientId ? metricsByUser[clientId] || [] : [];
         const risk = assessCareRisk(clientMetrics.slice(0, 5));
         const hasAutoNudge = clientId ? Boolean(latestNudgeByUser[clientId]) : false;
+        const latestMetric = clientMetrics[0];
+        const rhythmDays = computeRhythmDays(clientMetrics.slice(0, 21));
+        const reasonChips: string[] = [];
+
+        if (latestMetric?.mood) {
+          reasonChips.push(`Recent mood: ${latestMetric.mood}`);
+        }
+        const sleepHours = Number(latestMetric?.sleep_hours);
+        if (Number.isFinite(sleepHours) && sleepHours > 0) {
+          reasonChips.push(`Sleep: ${sleepHours}h`);
+        }
+        if (rhythmDays > 0) {
+          reasonChips.push(`Care rhythm: ${rhythmDays}d`);
+        }
+        if (!reasonChips.length) {
+          reasonChips.push('No recent logs yet');
+        }
 
         let alertMsg = risk.reason;
         if (!ready) {
@@ -136,6 +190,9 @@ export const TherapistDashboardScreen: React.FC = () => {
           riskLevel: ready ? risk.level : 'stable',
           hasAutoNudge,
           lastNudgeAt: clientId ? latestNudgeByUser[clientId] || null : null,
+          rhythmDays,
+          reasonChips: reasonChips.slice(0, 3),
+          openingPrompt: openingPromptForRisk(ready ? risk.level : 'stable'),
         };
       });
 
@@ -281,6 +338,13 @@ export const TherapistDashboardScreen: React.FC = () => {
   };
 
   const handleSendNudge = async (clientName: string, conversationId: string, reason: string) => {
+    if (!user?.id) return;
+    const client = clients.find((item) => item.conversationId === conversationId);
+    if (!client?.id) {
+      Alert.alert('Unavailable', 'Client context missing. Please refresh and try again.');
+      return;
+    }
+
     Alert.alert(
       'Send check-in',
       `Send a supportive follow-up to ${clientName}?`,
@@ -290,11 +354,25 @@ export const TherapistDashboardScreen: React.FC = () => {
           text: 'Send Template',
           onPress: async () => {
             try {
+              const cooldown = await getNudgeCooldownState({
+                userId: client.id,
+                therapistId: user.id,
+                source: 'therapist_manual',
+                cooldownHours: 24,
+              });
+              if (cooldown.isBlocked) {
+                Alert.alert(
+                  'Cooldown active',
+                  'A manual therapist nudge was already sent in the last 24 hours.',
+                );
+                return;
+              }
+
               const riskLevel = reason.toLowerCase().includes('high') ? 'high' : reason.toLowerCase().includes('strain') ? 'medium' : 'stable';
               const text = `Hi ${clientName}, ${therapistNudgePrefill(riskLevel as RiskLevel, reason)}`;
               await supabase.from('messages').insert({
                 conversation_id: conversationId,
-                sender_id: user?.id,
+                sender_id: user.id,
                 body: text,
                 message_type: 'text',
               });
@@ -303,17 +381,14 @@ export const TherapistDashboardScreen: React.FC = () => {
                 .update({ last_message_at: new Date().toISOString() })
                 .eq('id', conversationId);
 
-              const client = clients.find((item) => item.conversationId === conversationId);
-              if (client?.id) {
-                await createCareNudgeEvent({
-                  userId: client.id,
-                  therapistId: user?.id || null,
-                  triggerType: 'therapist_checkin',
-                  riskLevel: riskLevel as RiskLevel,
-                  source: 'therapist_manual',
-                  messagePreview: text,
-                });
-              }
+              await createCareNudgeEvent({
+                userId: client.id,
+                therapistId: user.id,
+                triggerType: 'therapist_checkin',
+                riskLevel: riskLevel as RiskLevel,
+                source: 'therapist_manual',
+                messagePreview: text,
+              });
               Alert.alert('Sent', 'Check-in sent successfully!');
             } catch (sendError) {
               Alert.alert('Error', 'Failed to send message.');
@@ -331,6 +406,15 @@ export const TherapistDashboardScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
+      {!canUseTherapistMode || !isTherapistMode ? (
+        <View style={styles.guardWrap}>
+          <EmptyState
+            icon="shield-checkmark-outline"
+            title="Therapist mode required"
+            message="This dashboard is only available to therapist or admin accounts in therapist mode."
+          />
+        </View>
+      ) : (
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {loading && <LoadingState message="Loading dashboard..." />}
 
@@ -420,6 +504,17 @@ export const TherapistDashboardScreen: React.FC = () => {
                   color={getRiskVisuals(client.riskLevel).badgeText}
                 />
                 <Text style={[styles.issueText, { color: getRiskVisuals(client.riskLevel).badgeText }]}>{client.alertMsg}</Text>
+              </View>
+              <View style={styles.reasonChipRow}>
+                {client.reasonChips.map((chip) => (
+                  <View key={`${client.id}-${chip}`} style={styles.reasonChip}>
+                    <Text style={styles.reasonChipText}>{chip}</Text>
+                  </View>
+                ))}
+              </View>
+              <View style={styles.promptCard}>
+                <Ionicons name="sparkles-outline" size={14} color={Colors.accent.primary} />
+                <Text style={styles.promptText}>{client.openingPrompt}</Text>
               </View>
               {client.hasAutoNudge && (
                 <View style={styles.nudgeFlag}>
@@ -556,12 +651,18 @@ export const TherapistDashboardScreen: React.FC = () => {
           ))
         )}
       </ScrollView>
+      )}
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.bg.primary },
+  guardWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xl,
+  },
   scrollContent: { padding: Spacing.xl, paddingBottom: 100 },
   header: {
     flexDirection: 'row',
@@ -608,6 +709,7 @@ const styles = StyleSheet.create({
   clientCard: {
     marginBottom: Spacing.md,
     gap: Spacing.md,
+    borderRadius: 24,
   },
   clientHeader: {
     flexDirection: 'row',
@@ -636,6 +738,39 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
   },
   issueText: { ...Typography.captionEmphasis, color: Colors.text.secondary, flex: 1 },
+  reasonChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+    marginTop: -2,
+  },
+  reasonChip: {
+    backgroundColor: Colors.accent.soft,
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+  },
+  reasonChipText: {
+    ...Typography.caption,
+    color: Colors.accent.dark,
+  },
+  promptCard: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    alignItems: 'flex-start',
+    backgroundColor: Colors.bg.secondary,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  promptText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    lineHeight: 18,
+    flex: 1,
+  },
   nudgeFlag: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -661,7 +796,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: Spacing.xs,
     paddingVertical: Spacing.sm,
-    borderRadius: Radius.md,
+    borderRadius: 14,
   },
   actionBtnOutline: {
     backgroundColor: Colors.bg.primary,
@@ -676,6 +811,7 @@ const styles = StyleSheet.create({
   sessionCard: {
     gap: Spacing.sm,
     marginBottom: Spacing.sm,
+    borderRadius: 22,
   },
   sessionHeader: {
     flexDirection: 'row',

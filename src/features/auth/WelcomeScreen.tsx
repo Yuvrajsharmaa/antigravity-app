@@ -71,8 +71,10 @@ export const WelcomeScreen: React.FC = () => {
         >
           {/* Brand header */}
           <View style={styles.brandSection}>
+            <View style={styles.brandHaloTop} />
+            <View style={styles.brandHaloBottom} />
             <View style={styles.logoContainer}>
-              <Ionicons name="planet-outline" size={44} color={Colors.accent.primary} />
+              <Ionicons name="leaf-outline" size={42} color={Colors.accent.primary} />
             </View>
             <Text style={styles.brandName}>Care Space</Text>
             <Text style={styles.headline}>
@@ -183,25 +185,51 @@ const styles = StyleSheet.create({
   },
   brandSection: {
     alignItems: 'center',
-    marginBottom: Spacing.xxxl,
+    marginBottom: Spacing.xxl,
+    backgroundColor: Colors.accent.soft,
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.xxl,
+    overflow: 'hidden',
+  },
+  brandHaloTop: {
+    position: 'absolute',
+    width: 170,
+    height: 170,
+    borderRadius: Radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.28)',
+    right: -46,
+    top: -66,
+  },
+  brandHaloBottom: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: Radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.28)',
+    left: -32,
+    bottom: -38,
   },
   logoContainer: {
     width: 80,
     height: 80,
-    borderRadius: 24,
-    backgroundColor: Colors.accent.soft,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.bg.secondary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.lg,
   },
   brandName: {
-    ...Typography.micro,
-    color: Colors.accent.primary,
-    letterSpacing: 2,
-    marginBottom: Spacing.md,
+    ...Typography.title1,
+    color: Colors.text.primary,
+    marginBottom: Spacing.xs,
   },
   headline: {
-    ...Typography.title1,
+    ...Typography.title2,
     color: Colors.text.primary,
     textAlign: 'center',
     marginBottom: Spacing.sm,
@@ -214,14 +242,19 @@ const styles = StyleSheet.create({
   },
   formSection: {
     gap: Spacing.sm,
+    backgroundColor: Colors.bg.secondary,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    padding: Spacing.lg,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.bg.secondary,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     borderWidth: 1,
-    borderColor: Colors.stroke.subtle,
+    borderColor: Colors.stroke.medium,
     paddingHorizontal: Spacing.md,
     height: 52,
   },
@@ -247,7 +280,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   footer: {
-    marginTop: Spacing.xxxl,
+    marginTop: Spacing.xxl,
     paddingBottom: Spacing.lg,
   },
   disclaimer: {

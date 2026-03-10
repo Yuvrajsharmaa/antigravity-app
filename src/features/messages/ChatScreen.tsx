@@ -19,12 +19,13 @@ import { supabase } from '../../services/supabase';
 import { moderateMessage } from '../../core/utils/moderation';
 import { ChatMessage } from '../../core/models/types';
 import { careBuddyLine } from '../../core/utils/careBuddy';
+import { ChatRouteParams } from '../../navigation/types';
 
 export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
-  const { conversationId, therapistName, therapistAvatar, therapistId } = route.params;
+  const { conversationId, therapistName, therapistAvatar, therapistId } = (route.params || {}) as ChatRouteParams;
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -35,10 +36,11 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
+    if (!conversationId) return;
     fetchMessages();
     const subscription = setupRealtime();
     return () => { subscription?.unsubscribe(); };
-  }, []);
+  }, [conversationId]);
 
   const fetchMessages = async () => {
     const { data, error } = await supabase
@@ -271,7 +273,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: Colors.stroke.subtle,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.bg.tertiary,
   },
   headerText: { marginLeft: 4 },
   headerName: { ...Typography.bodySemibold, color: Colors.text.primary },
@@ -287,7 +289,7 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
     backgroundColor: Colors.accent.soft,
     padding: Spacing.sm,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     marginBottom: Spacing.md,
   },
   boundaryText: { ...Typography.caption, color: Colors.accent.dark, flex: 1, lineHeight: 18 },
@@ -307,11 +309,11 @@ const styles = StyleSheet.create({
   },
   bubbleMe: {
     backgroundColor: Colors.accent.primary,
-    borderBottomRightRadius: 4,
+    borderBottomRightRadius: 10,
   },
   bubbleThem: {
     backgroundColor: Colors.bg.secondary,
-    borderBottomLeftRadius: 4,
+    borderBottomLeftRadius: 10,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
   },
@@ -340,6 +342,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.status.dangerSoft,
     paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.sm,
+    marginHorizontal: Spacing.xl,
+    marginBottom: Spacing.xs,
+    borderRadius: Radius.lg,
   },
   blockedText: { ...Typography.caption, color: Colors.status.danger, flex: 1 },
   coachBanner: {
@@ -347,8 +352,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.xs,
     backgroundColor: Colors.accent.soft,
-    paddingHorizontal: Spacing.xl,
+    paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
+    marginHorizontal: Spacing.xl,
+    marginBottom: Spacing.xs,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
   },
   coachText: {
     ...Typography.caption,
@@ -363,7 +373,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderTopWidth: 1,
     borderTopColor: Colors.stroke.subtle,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.bg.tertiary,
   },
   composerInput: {
     flex: 1,
@@ -380,7 +390,7 @@ const styles = StyleSheet.create({
   sendBtn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 14,
     backgroundColor: Colors.accent.primary,
     alignItems: 'center',
     justifyContent: 'center',

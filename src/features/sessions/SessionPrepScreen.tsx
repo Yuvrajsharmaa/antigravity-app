@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Avatar, Button, Card, ErrorState } from '../../core/components';
@@ -192,7 +192,11 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
         <View style={{ width: 56 }} />
       </View>
 
-      <View style={styles.content}>
+      <ScrollView
+        style={styles.contentScroll}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
         <Card style={styles.participantCard}>
           <Avatar uri={session.participant_avatar} name={session.participant_name} size={56} />
           <View style={styles.participantInfo}>
@@ -298,7 +302,7 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
           onPress={joinNow}
           disabled={!joinAvailable || !joinWindowOpen}
         />
-      </View>
+      </ScrollView>
       </>
       )}
     </SafeAreaView>
@@ -346,12 +350,16 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: Spacing.xl,
     gap: Spacing.md,
-    paddingBottom: Spacing.xxxl,
+    paddingBottom: Spacing.xxxxl + 24,
+  },
+  contentScroll: {
+    flex: 1,
   },
   participantCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
+    borderRadius: Radius.xl,
   },
   participantInfo: {
     flex: 1,
@@ -370,6 +378,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.sm,
     backgroundColor: Colors.accent.soft,
+    borderRadius: Radius.xl,
   },
   countdownText: {
     ...Typography.body,
@@ -381,6 +390,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.xs,
     backgroundColor: Colors.bg.secondary,
+    borderRadius: Radius.xl,
   },
   readinessText: {
     ...Typography.caption,
@@ -396,7 +406,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
     backgroundColor: Colors.bg.secondary,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     ...Typography.body,
@@ -412,7 +422,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.stroke.medium,
     backgroundColor: Colors.bg.secondary,
-    borderRadius: Radius.pill,
+    borderRadius: Radius.lg,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
   },
@@ -454,7 +464,7 @@ const styles = StyleSheet.create({
   snapshotItem: {
     width: '48%',
     backgroundColor: Colors.bg.secondary,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
     paddingHorizontal: Spacing.sm,
@@ -471,7 +481,7 @@ const styles = StyleSheet.create({
   },
   noteBox: {
     backgroundColor: Colors.accent.soft,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     padding: Spacing.sm,
     marginBottom: Spacing.sm,
   },
@@ -486,7 +496,7 @@ const styles = StyleSheet.create({
   },
   promptBox: {
     backgroundColor: Colors.bg.secondary,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
     padding: Spacing.sm,
