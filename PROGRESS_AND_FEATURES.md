@@ -41,6 +41,14 @@ Build **"Care Space"**, a comprehensive psychological consultation platform wher
 
 ## 📈 Recent Updates Log (Changelog)
 
+- **[Codex AGENT] - March 10, 2026 (Dev Admin Enablement)**
+  - Added dev-admin bootstrapping in `AuthContext.tsx` for `yuvrajsharma6367@gmail.com`:
+    - Auto-promotes the matching profile role to `admin` on login/profile refresh.
+    - Exposes `isDevAdmin` in auth context for admin-gated developer utilities.
+  - Added admin-only testing compatibility in `SessionsScreen.tsx`:
+    - Pending bookings now show `Dev: Confirm booking` for authenticated dev admin users.
+    - This lets the same client account approve pending bookings and unlock video-call join flow for testing without therapist-side login.
+
 - **[Codex AGENT] - March 10, 2026**
   - Expanded `supabase/schema.sql` booking RLS with therapist-scoped select/update policies (`bookings_select_therapist`, `bookings_update_therapist`) while preserving client-owned policies.
   - Upgraded `SlotSelectionScreen.tsx` with resilient slot fetching UX: loading state, error state with retry, and explicit empty-state behavior for no availability.

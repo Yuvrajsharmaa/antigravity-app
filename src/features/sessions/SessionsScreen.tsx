@@ -38,7 +38,7 @@ const getFirst = <T,>(value: T | T[] | null | undefined): T | undefined => {
 };
 
 export const SessionsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { user, isTherapistMode } = useAuth();
+  const { user, isTherapistMode, isDevAdmin } = useAuth();
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -274,7 +274,8 @@ export const SessionsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
   const renderSession = ({ item }: { item: SessionItem }) => {
     const sc = getStatusConfig(item);
     const joinable = canJoin(item);
-    const showConfirm = isTherapistMode && item.booking_status === 'pending_payment';
+    const showConfirm = (isTherapistMode || isDevAdmin) && item.booking_status === 'pending_payment';
+    const confirmLabel = isTherapistMode ? 'Confirm booking' : 'Dev: Confirm booking';
 
     return (
       <Card style={styles.sessionCard}>
@@ -292,7 +293,7 @@ export const SessionsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
         {showConfirm && (
           <Button
-            title="Confirm booking"
+            title={confirmLabel}
             variant="secondary"
             loading={actionLoadingId === item.booking_id}
             onPress={() => confirmBooking(item)}

@@ -14,9 +14,16 @@ interface AuthContextType {
   refreshProfile: () => Promise<void>;
   isTherapistMode: boolean;
   toggleTherapistMode: () => void;
+  isDevAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const DEV_ADMIN_EMAILS = ['yuvrajsharma6367@gmail.com'];
+
+const isDevAdminEmail = (email?: string | null) => {
+  if (!email) return false;
+  return DEV_ADMIN_EMAILS.includes(email.trim().toLowerCase());
+};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [session, setSession] = useState<Session | null>(null);
@@ -51,6 +58,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchProfile = async (userId: string) => {
     try {
+      const currentUser = session?.user || (await supabase.auth.getUser()).data.user;
+      const shouldPromoteDevAdmin = isDevAdminEmail(currentUser?.email);
+
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -59,14 +69,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error && error.code === 'PGRST116') {
         // Profile doesn't exist yet - create it
-        const user = session?.user || (await supabase.auth.getUser()).data.user;
         const newProfile: Partial<Profile> = {
           id: userId,
-          role: 'user',
+          role: shouldPromoteDevAdmin ? 'admin' : 'user',
           first_name: null,
-          display_name: user?.user_metadata?.full_name || null,
-          email: user?.email || null,
-          avatar_url: user?.user_metadata?.avatar_url || null,
+          display_name: currentUser?.user_metadata?.full_name || null,
+          email: currentUser?.email || null,
+          avatar_url: currentUser?.user_metadata?.avatar_url || null,
           language: 'English',
           onboarding_completed: false,
         };
@@ -81,7 +90,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setProfile(created as Profile);
         }
       } else if (data) {
-        setProfile(data as Profile);
+        const currentProfile = data as Profile;
+
+        if (shouldPromoteDevAdmin && currentProfile.role !== 'admin') {
+          const { data: upgradedProfile, error: upgradeError } = await supabase
+            .from('profiles')
+            .update({ role: 'admin', updated_at: new Date().toISOString() })
+            .eq('id', userId)
+            .select()
+            .single();
+
+          if (!upgradeError && upgradedProfile) {
+            setProfile(upgradedProfile as Profile);
+          } else {
+            setProfile(currentProfile);
+          }
+        } else {
+          setProfile(currentProfile);
+        }
       }
     } catch (err) {
       console.error('Error fetching profile:', err);
@@ -118,6 +144,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsTherapistMode(!isTherapistMode);
   };
 
+  const isDevAdmin =
+    profile?.role === 'admin' && isDevAdminEmail(profile?.email || session?.user?.email);
+
   return (
     <AuthContext.Provider
       value={{
@@ -131,6 +160,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         refreshProfile,
         isTherapistMode,
         toggleTherapistMode,
+        isDevAdmin,
       }}
     >
       {children}
