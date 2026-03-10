@@ -46,57 +46,60 @@ const MessagesStackScreen = () => (
 );
 
 // Main tab navigator
-const MainTabs = () => (
-  <Tab.Navigator
-    screenOptions={({ route }) => ({
-      headerShown: false,
-      tabBarIcon: ({ focused, color, size }) => {
-        let iconName: keyof typeof Ionicons.glyphMap = 'home';
-        switch (route.name) {
-          case 'HomeTab':
-            iconName = focused ? 'home' : 'home-outline';
-            break;
-          case 'SessionsTab':
-            iconName = focused ? 'calendar' : 'calendar-outline';
-            break;
-          case 'MessagesTab':
-            iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
-            break;
-          case 'ProfileTab':
-            iconName = focused ? 'person' : 'person-outline';
-            break;
-        }
-        return <Ionicons name={iconName} size={22} color={color} />;
-      },
-      tabBarActiveTintColor: Colors.accent.primary,
-      tabBarInactiveTintColor: Colors.text.tertiary,
-      tabBarLabelStyle: {
-        ...Typography.caption,
-        fontSize: 11,
-        fontWeight: '500',
-        marginTop: -2,
-      },
-      tabBarStyle: {
-        backgroundColor: Colors.bg.primary,
-        borderTopColor: Colors.stroke.subtle,
-        borderTopWidth: 1,
-        paddingTop: Platform.OS === 'android' ? 8 : 4,
-        paddingBottom: Platform.OS === 'android' ? 8 : 0,
-        height: Platform.OS === 'android' ? 64 : undefined,
-        elevation: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-      },
-    })}
-  >
-    <Tab.Screen name="HomeTab" component={HomeStackScreen} options={{ tabBarLabel: 'Home' }} />
-    <Tab.Screen name="SessionsTab" component={SessionsScreen} options={{ tabBarLabel: 'Sessions' }} />
-    <Tab.Screen name="MessagesTab" component={MessagesStackScreen} options={{ tabBarLabel: 'Messages' }} />
-    <Tab.Screen name="ProfileTab" component={ProfileScreen} options={{ tabBarLabel: 'Profile' }} />
-  </Tab.Navigator>
-);
+const MainTabs = () => {
+  const insets = require('react-native-safe-area-context').useSafeAreaInsets();
+  
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarIcon: ({ focused, color }) => {
+          let iconName: keyof typeof Ionicons.glyphMap = 'home';
+          switch (route.name) {
+            case 'HomeTab':
+              iconName = focused ? 'home' : 'home-outline';
+              break;
+            case 'SessionsTab':
+              iconName = focused ? 'calendar' : 'calendar-outline';
+              break;
+            case 'MessagesTab':
+              iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+              break;
+            case 'ProfileTab':
+              iconName = focused ? 'person' : 'person-outline';
+              break;
+          }
+          return <Ionicons name={iconName} size={24} color={color} />;
+        },
+        tabBarActiveTintColor: Colors.accent.primary,
+        tabBarInactiveTintColor: Colors.text.tertiary,
+        tabBarLabelStyle: {
+          ...Typography.caption,
+          fontSize: 11,
+          fontWeight: '500',
+        },
+        tabBarStyle: {
+          backgroundColor: Colors.bg.primary,
+          borderTopColor: Colors.stroke.subtle,
+          borderTopWidth: 1,
+          paddingTop: 8,
+          paddingBottom: Math.max(insets.bottom, 8),
+          height: 60 + Math.max(insets.bottom, 8),
+          elevation: 8,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.05,
+          shadowRadius: 10,
+        },
+      })}
+    >
+      <Tab.Screen name="HomeTab" component={HomeStackScreen} options={{ tabBarLabel: 'Home' }} />
+      <Tab.Screen name="SessionsTab" component={SessionsScreen} options={{ tabBarLabel: 'Sessions' }} />
+      <Tab.Screen name="MessagesTab" component={MessagesStackScreen} options={{ tabBarLabel: 'Messages' }} />
+      <Tab.Screen name="ProfileTab" component={ProfileScreen} options={{ tabBarLabel: 'Profile' }} />
+    </Tab.Navigator>
+  );
+};
 
 export const AppNavigator: React.FC = () => {
   const { session, profile, isLoading } = useAuth();
