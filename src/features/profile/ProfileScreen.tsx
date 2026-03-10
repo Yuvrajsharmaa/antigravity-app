@@ -5,9 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
 import { Avatar, Card } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
+import { useNavigation } from '@react-navigation/native';
+import { supabase } from '../../services/supabase';
 
 export const ProfileScreen: React.FC = () => {
-  const { profile, signOut, isTherapistMode, toggleTherapistMode } = useAuth();
+  const navigation = useNavigation<any>();
+  const { profile, signOut, isTherapistMode, toggleTherapistMode, refreshProfile } = useAuth();
 
   const handleSignOut = () => {
     Alert.alert('Sign out', 'Are you sure you want to sign out?', [
@@ -16,17 +19,49 @@ export const ProfileScreen: React.FC = () => {
     ]);
   };
 
+  const handleRestartOnboarding = () => {
+    if (!profile?.id) return;
+
+    Alert.alert(
+      'View onboarding again',
+      'This will reopen onboarding from the start. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Restart',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('profiles')
+                .update({
+                  onboarding_completed: false,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', profile.id);
+
+              if (error) throw error;
+              await refreshProfile();
+            } catch (err: any) {
+              Alert.alert('Unable to reopen onboarding', err.message || 'Please try again.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const settingsItems = [
-    { icon: 'person-outline', label: 'Edit profile', onPress: () => {} },
-    { icon: 'notifications-outline', label: 'Notifications', onPress: () => {} },
-    { icon: 'shield-checkmark-outline', label: 'Privacy & safety', onPress: () => {} },
-    { icon: 'help-circle-outline', label: 'Help & support', onPress: () => {} },
+    { icon: 'person-outline', label: 'Edit profile', onPress: () => navigation.navigate('EditProfile') },
+    { icon: 'notifications-outline', label: 'Notifications', onPress: () => navigation.navigate('Notifications') },
+    { icon: 'shield-checkmark-outline', label: 'Privacy & safety', onPress: () => navigation.navigate('ProfileInfo', { topic: 'privacy_safety' }) },
+    { icon: 'help-circle-outline', label: 'Help & support', onPress: () => navigation.navigate('ProfileInfo', { topic: 'help_support' }) },
   ];
 
   const legalItems = [
-    { icon: 'document-text-outline', label: 'Terms of service', onPress: () => {} },
-    { icon: 'lock-closed-outline', label: 'Privacy policy', onPress: () => {} },
-    { icon: 'information-circle-outline', label: 'About Care Space', onPress: () => {} },
+    { icon: 'document-text-outline', label: 'Terms of service', onPress: () => navigation.navigate('ProfileInfo', { topic: 'terms' }) },
+    { icon: 'lock-closed-outline', label: 'Privacy policy', onPress: () => navigation.navigate('ProfileInfo', { topic: 'privacy_policy' }) },
+    { icon: 'information-circle-outline', label: 'About Care Space', onPress: () => navigation.navigate('ProfileInfo', { topic: 'about' }) },
+    { icon: 'refresh-outline', label: 'View onboarding again', onPress: handleRestartOnboarding },
   ];
 
   return (
@@ -90,7 +125,7 @@ export const ProfileScreen: React.FC = () => {
         <Text style={styles.signOutText}>Sign out</Text>
       </TouchableOpacity>
 
-      <Text style={styles.version}>Care Space v1.0.0 (prototype)</Text>
+      <Text style={styles.version}>Care Space v1.1.0</Text>
     </SafeAreaView>
   );
 };

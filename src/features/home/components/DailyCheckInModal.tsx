@@ -4,16 +4,32 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../../core/theme';
 import { supabase } from '../../../services/supabase';
 import { useAuth } from '../../../core/context/AuthContext';
+import { BackendSetupCard } from '../../../core/components';
+import { assessCareRisk } from '../../../core/utils/careRisk';
+import {
+  scheduleAdaptiveWellbeingReminders,
+  triggerSupportiveNudgeNotification,
+} from '../../../core/utils/wellbeingNotifications';
 
 interface DailyCheckInModalProps {
   visible: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  backendReady: boolean;
+  setupIssue: string | null;
+  onRetrySetup: () => void;
 }
 
 const MOODS = ['Happy', 'Neutral', 'Sad', 'Anxious', 'Angry'];
 
-export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({ visible, onClose, onSuccess }) => {
+export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
+  visible,
+  onClose,
+  onSuccess,
+  backendReady,
+  setupIssue,
+  onRetrySetup,
+}) => {
   const { user } = useAuth();
   const [mood, setMood] = useState<string | null>(null);
   const [stress, setStress] = useState(3);
@@ -21,7 +37,7 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({ visible, o
   const [journal, setJournal] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const calculateFreudScore = (selectedMood: string, stressLvl: number, sleepHrs: number) => {
+  const calculateCareScore = (selectedMood: string, stressLvl: number, sleepHrs: number) => {
     let score = 50; // Base score
     if (selectedMood === 'Happy') score += 20;
     else if (selectedMood === 'Neutral') score += 10;
@@ -44,15 +60,25 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({ visible, o
   };
 
   const handleSave = async () => {
+    if (!backendReady) {
+      Alert.alert('Setup required', setupIssue || 'Backend is not ready. Please run migration and retry.');
+      return;
+    }
+
     if (!user || !mood) {
       Alert.alert('Missing Info', 'Please select a mood to continue.');
       return;
     }
 
+    const sleepNum = parseFloat(sleep.replace(',', '.'));
+    if (Number.isNaN(sleepNum) || sleepNum <= 0 || sleepNum > 24) {
+      Alert.alert('Invalid sleep input', 'Enter a valid sleep duration between 0 and 24 hours.');
+      return;
+    }
+
     setLoading(true);
     try {
-      const sleepNum = parseFloat(sleep) || 0;
-      const score = calculateFreudScore(mood, stress, sleepNum);
+      const score = calculateCareScore(mood, stress, sleepNum);
 
       const { error } = await supabase.from('client_metrics').insert({
         user_id: user.id,
@@ -60,10 +86,48 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({ visible, o
         stress_level: stress,
         sleep_hours: sleepNum,
         journal_entry: journal.trim() || null,
-        freud_score_snapshot: score
+        care_score_snapshot: score
       });
 
       if (error) throw error;
+
+      const { data: riskMetrics } = await supabase
+        .from('client_metrics')
+        .select('created_at, stress_level, care_score_snapshot')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      const risk = assessCareRisk(riskMetrics || []);
+      if (risk.level === 'high') {
+        const supportiveMessage =
+          'Your recent check-in suggests you might need extra support. We gently notified your therapist.';
+
+        const { data: conversations } = await supabase
+          .from('conversations')
+          .select('therapist_id')
+          .eq('user_id', user.id);
+
+        const events = (conversations || [])
+          .map((row) => row.therapist_id)
+          .filter(Boolean)
+          .map((therapistId) => ({
+            user_id: user.id,
+            therapist_id: therapistId,
+            trigger_type: 'care_score_high_risk',
+            risk_level: 'high',
+            source: 'system_auto',
+            message_preview: supportiveMessage,
+          }));
+
+        if (events.length > 0) {
+          await supabase.from('care_nudge_events').insert(events);
+        }
+
+        await triggerSupportiveNudgeNotification();
+      }
+
+      await scheduleAdaptiveWellbeingReminders(user.id);
       
       onSuccess();
       onClose();
@@ -87,60 +151,71 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({ visible, o
             </View>
 
             <ScrollView contentContainerStyle={styles.content}>
-              
-              <Text style={styles.label}>How are you feeling today?</Text>
-              <View style={styles.moodRow}>
-                {MOODS.map(m => (
-                  <TouchableOpacity 
-                    key={m} 
-                    style={[styles.moodBtn, mood === m && styles.moodBtnActive]}
-                    onPress={() => setMood(m)}
-                  >
-                    <Text style={[styles.moodText, mood === m && styles.moodTextActive]}>{m}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {setupIssue ? (
+                <BackendSetupCard
+                  title="Mood Tracking Setup Required"
+                  message={setupIssue}
+                  onRetry={onRetrySetup}
+                />
+              ) : (
+                <>
+                  <Text style={styles.label}>How are you feeling today?</Text>
+                  <View style={styles.moodRow}>
+                    {MOODS.map(m => (
+                      <TouchableOpacity 
+                        key={m} 
+                        style={[styles.moodBtn, mood === m && styles.moodBtnActive]}
+                        onPress={() => setMood(m)}
+                      >
+                        <Text style={[styles.moodText, mood === m && styles.moodTextActive]}>{m}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
 
-              <Text style={styles.label}>Stress Level (1-5)</Text>
-              <View style={styles.stressRow}>
-                {[1,2,3,4,5].map(lvl => (
-                  <TouchableOpacity 
-                    key={lvl} 
-                    style={[styles.stressBtn, stress === lvl && styles.stressBtnActive]}
-                    onPress={() => setStress(lvl)}
-                  >
-                    <Text style={[styles.stressText, stress === lvl && styles.stressTextActive]}>{lvl}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+                  <Text style={styles.label}>Stress Level (1-5)</Text>
+                  <View style={styles.stressRow}>
+                    {[1,2,3,4,5].map(lvl => (
+                      <TouchableOpacity 
+                        key={lvl} 
+                        style={[styles.stressBtn, stress === lvl && styles.stressBtnActive]}
+                        onPress={() => setStress(lvl)}
+                      >
+                        <Text style={[styles.stressText, stress === lvl && styles.stressTextActive]}>{lvl}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
 
-              <Text style={styles.label}>Hours of Sleep</Text>
-              <TextInput 
-                style={styles.input}
-                placeholder="e.g. 7.5"
-                placeholderTextColor={Colors.text.tertiary}
-                keyboardType="numeric"
-                value={sleep}
-                onChangeText={setSleep}
-              />
+                  <Text style={styles.label}>Hours of Sleep</Text>
+                  <TextInput 
+                    style={styles.input}
+                    placeholder="e.g. 7.5"
+                    placeholderTextColor={Colors.text.tertiary}
+                    keyboardType="numeric"
+                    value={sleep}
+                    onChangeText={setSleep}
+                  />
 
-              <Text style={styles.label}>Journal (Optional)</Text>
-              <TextInput 
-                style={[styles.input, styles.textArea]}
-                placeholder="Write down any thoughts..."
-                placeholderTextColor={Colors.text.tertiary}
-                multiline
-                numberOfLines={4}
-                value={journal}
-                onChangeText={setJournal}
-              />
+                  <Text style={styles.label}>Journal (Optional)</Text>
+                  <TextInput 
+                    style={[styles.input, styles.textArea]}
+                    placeholder="Write down any thoughts..."
+                    placeholderTextColor={Colors.text.tertiary}
+                    multiline
+                    numberOfLines={4}
+                    value={journal}
+                    onChangeText={setJournal}
+                  />
+                </>
+              )}
 
-              <TouchableOpacity 
-                style={[styles.saveBtn, (!mood || loading) && styles.saveBtnDisabled]}
+              <TouchableOpacity
+                style={[styles.saveBtn, (!mood || loading || !backendReady || !!setupIssue) && styles.saveBtnDisabled]}
                 onPress={handleSave}
-                disabled={!mood || loading}
+                disabled={!mood || loading || !backendReady || !!setupIssue}
               >
-                <Text style={styles.saveBtnText}>{loading ? 'Saving...' : 'Complete Check-in'}</Text>
+                <Text style={styles.saveBtnText}>
+                  {setupIssue ? 'Setup required' : loading ? 'Saving...' : 'Complete Check-in'}
+                </Text>
               </TouchableOpacity>
             </ScrollView>
           </View>

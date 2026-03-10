@@ -1,159 +1,361 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Avatar, Card, LoadingState } from '../../core/components';
+import { Avatar, Card, LoadingState, EmptyState, BackendSetupCard } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useClientMetricsReadiness } from '../../core/hooks/useClientMetricsReadiness';
+import { assessCareRisk, riskPriority } from '../../core/utils/careRisk';
+import { RiskLevel } from '../../core/models/types';
 
-const DUMMY_CLIENTS_NEEDING_ATTENTION = [
-  {
-    id: '1',
-    name: 'Sarah M.',
-    avatar: 'https://i.pravatar.cc/150?u=sarah',
-    issue: 'Missed Journaling 3 times',
-    lastContact: '5 days ago',
-    alertLevel: 'high',
-  },
-  {
-    id: '2',
-    name: 'James L.',
-    avatar: 'https://i.pravatar.cc/150?u=james',
-    issue: 'Session completed, did not rebook',
-    lastContact: 'Yesterday',
-    alertLevel: 'medium',
-  },
-];
+interface DashboardClient {
+  id: string;
+  conversationId: string;
+  name: string;
+  avatar: string | null;
+  alertMsg: string;
+  riskLevel: RiskLevel;
+  hasAutoNudge: boolean;
+  lastNudgeAt: string | null;
+}
 
-const DUMMY_UPCOMING_SESSIONS = [
-  {
-    id: '3',
-    name: 'Emily R.',
-    avatar: 'https://i.pravatar.cc/150?u=emily',
-    time: '2:00 PM',
-  },
-  {
-    id: '4',
-    name: 'David K.',
-    avatar: 'https://i.pravatar.cc/150?u=david',
-    time: '4:30 PM',
-  },
-];
+interface UpcomingSession {
+  bookingId: string;
+  slotId: string | null;
+  bookingStatus: 'pending_payment' | 'confirmed' | 'cancelled' | 'completed' | 'failed';
+  scheduledStartAt: string;
+  scheduledEndAt: string;
+  amountInr: number;
+  sessionType: 'video' | 'chat';
+  clientId: string;
+  clientName: string;
+  clientAvatar: string | null;
+  sessionId: string | null;
+  sessionStatus: 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | null;
+  videoCallId: string | null;
+}
+
+const getFirst = <T,>(value: T | T[] | null | undefined): T | undefined => {
+  if (!value) return undefined;
+  return Array.isArray(value) ? value[0] : value;
+};
 
 export const TherapistDashboardScreen: React.FC = () => {
   const { profile, user } = useAuth();
   const navigation = useNavigation<any>();
-  const [realClients, setRealClients] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { ready, requiresSetup, issue, refresh } = useClientMetricsReadiness();
 
-  const fetchClients = React.useCallback(async () => {
+  const [clients, setClients] = useState<DashboardClient[]>([]);
+  const [upcomingSessions, setUpcomingSessions] = useState<UpcomingSession[]>([]);
+  const [stats, setStats] = useState({ activeClients: 0, upcomingCount: 0, expectedRevenueInr: 0 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  const fetchDashboard = React.useCallback(async () => {
     if (!user) return;
+
     try {
-      const { data, error } = await supabase
+      setLoading(true);
+      setError(null);
+
+      const { data: convData, error: convError } = await supabase
         .from('conversations')
         .select(`
           id,
           users:user_id ( id, first_name, display_name, avatar_url )
         `)
         .eq('therapist_id', user.id);
-      
-      if (!error && data) {
-        // Fetch recent metrics for these clients to determine alerts
-        const clientIds = data.map((c: any) => {
-          const u = Array.isArray(c.users) ? c.users[0] : c.users;
-          return u?.id;
-        }).filter(Boolean);
 
-        const { data: metrics } = await supabase
+      if (convError) throw convError;
+
+      const conversationRows = convData || [];
+      const clientIds = conversationRows
+        .map((row: any) => getFirst<any>(row.users)?.id)
+        .filter(Boolean);
+
+      let metricsByUser: Record<string, any[]> = {};
+      if (ready && clientIds.length > 0) {
+        const { data: metrics, error: metricsError } = await supabase
           .from('client_metrics')
-          .select('user_id, stress_level, freud_score_snapshot, created_at')
+          .select('user_id, stress_level, care_score_snapshot, created_at')
           .in('user_id', clientIds)
           .order('created_at', { ascending: false });
 
-        const enrichedClients = data.map((conv: any) => {
-          const u = Array.isArray(conv.users) ? conv.users[0] : conv.users;
-          const latestMetric = metrics?.find(m => m.user_id === u?.id);
-          
-          let alertMsg = null;
-          let isHighAlert = false;
-          if (latestMetric) {
-            if (latestMetric.stress_level >= 4) {
-              alertMsg = 'High stress reported';
-              isHighAlert = true;
-            } else if (latestMetric.freud_score_snapshot < 50) {
-              alertMsg = 'Low mood/health score';
-              isHighAlert = true;
-            }
-          } else {
-            alertMsg = 'No logged metrics yet';
+        if (metricsError) {
+          setError(metricsError.message || 'Unable to evaluate CareScore alerts right now.');
+        } else {
+          for (const item of metrics || []) {
+            metricsByUser[item.user_id] = metricsByUser[item.user_id] || [];
+            metricsByUser[item.user_id].push(item);
           }
+        }
+      }
 
-          return { ...conv, alertMsg, isHighAlert };
+      let latestNudgeByUser: Record<string, string> = {};
+      if (clientIds.length > 0) {
+        const { data: nudgeEvents, error: nudgeError } = await supabase
+          .from('care_nudge_events')
+          .select('user_id, created_at')
+          .eq('therapist_id', user.id)
+          .in('user_id', clientIds)
+          .order('created_at', { ascending: false });
+
+        if (!nudgeError) {
+          for (const event of nudgeEvents || []) {
+            if (!latestNudgeByUser[event.user_id]) {
+              latestNudgeByUser[event.user_id] = event.created_at;
+            }
+          }
+        }
+      }
+
+      const nextClients: DashboardClient[] = conversationRows.map((row: any) => {
+        const profileRow = getFirst<any>(row.users);
+        const clientId = profileRow?.id;
+        const clientMetrics = clientId ? metricsByUser[clientId] || [] : [];
+        const risk = assessCareRisk(clientMetrics.slice(0, 5));
+        const hasAutoNudge = clientId ? Boolean(latestNudgeByUser[clientId]) : false;
+
+        let alertMsg = risk.reason;
+        if (!ready) {
+          alertMsg = 'CareScore unavailable until setup is completed';
+        }
+
+        return {
+          id: clientId || row.id,
+          conversationId: row.id,
+          name: profileRow?.display_name || profileRow?.first_name || 'Client',
+          avatar: profileRow?.avatar_url || null,
+          alertMsg,
+          riskLevel: ready ? risk.level : 'stable',
+          hasAutoNudge,
+          lastNudgeAt: clientId ? latestNudgeByUser[clientId] || null : null,
+        };
+      });
+
+      nextClients.sort((a, b) => {
+        const riskDiff = riskPriority(b.riskLevel) - riskPriority(a.riskLevel);
+        if (riskDiff !== 0) return riskDiff;
+
+        const nudgeTimeA = a.lastNudgeAt ? new Date(a.lastNudgeAt).getTime() : 0;
+        const nudgeTimeB = b.lastNudgeAt ? new Date(b.lastNudgeAt).getTime() : 0;
+        return nudgeTimeB - nudgeTimeA;
+      });
+
+      const nowIso = new Date().toISOString();
+      const weekAheadIso = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      const { data: bookingData, error: bookingError } = await supabase
+        .from('bookings')
+        .select(`
+          id, slot_id, status, scheduled_start_at, scheduled_end_at, amount_inr, session_type,
+          users:user_id (id, display_name, first_name, avatar_url),
+          sessions (id, status, video_call_id)
+        `)
+        .eq('therapist_id', user.id)
+        .gte('scheduled_start_at', nowIso)
+        .lte('scheduled_start_at', weekAheadIso)
+        .order('scheduled_start_at', { ascending: true });
+
+      if (bookingError) throw bookingError;
+
+      const nextUpcoming: UpcomingSession[] = (bookingData || [])
+        .filter((row: any) => ['pending_payment', 'confirmed'].includes(row.status))
+        .map((row: any) => {
+          const clientProfile = getFirst<any>(row.users);
+          const session = getFirst<any>(row.sessions);
+          return {
+            bookingId: row.id,
+            slotId: row.slot_id,
+            bookingStatus: row.status,
+            scheduledStartAt: row.scheduled_start_at,
+            scheduledEndAt: row.scheduled_end_at,
+            amountInr: row.amount_inr,
+            sessionType: row.session_type,
+            clientId: clientProfile?.id || '',
+            clientName: clientProfile?.display_name || clientProfile?.first_name || 'Client',
+            clientAvatar: clientProfile?.avatar_url || null,
+            sessionId: session?.id || null,
+            sessionStatus: session?.status || null,
+            videoCallId: session?.video_call_id || null,
+          } as UpcomingSession;
         });
 
-        // Sort so high alerts are at top
-        enrichedClients.sort((a: any, b: any) => (b.isHighAlert ? 1 : 0) - (a.isHighAlert ? 1 : 0));
-        setRealClients(enrichedClients);
-      }
-    } catch (err) {
-      console.log(err);
+      const expectedRevenueInr = nextUpcoming
+        .filter((s) => s.bookingStatus === 'confirmed')
+        .reduce((acc, curr) => acc + curr.amountInr, 0);
+
+      setClients(nextClients);
+      setUpcomingSessions(nextUpcoming);
+      setStats({
+        activeClients: new Set(nextClients.map((c) => c.id)).size,
+        upcomingCount: nextUpcoming.length,
+        expectedRevenueInr,
+      });
+    } catch (err: any) {
+      setError(err.message || 'Unable to load therapist dashboard right now.');
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [ready, user]);
 
   useFocusEffect(
     React.useCallback(() => {
-      fetchClients();
-    }, [fetchClients])
+      refresh();
+      fetchDashboard();
+    }, [fetchDashboard, refresh])
   );
 
-  const handleSendNudge = async (clientName: string, activeConvId?: string) => {
-    if (!activeConvId) {
-      Alert.alert(
-        'Prototype Note',
-        `Send an automated check-in nudge to ${clientName}? (This is a dummy profile, so it won't send real data)`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Send Template', onPress: () => Alert.alert('Sent', 'The client will receive a push notification.') },
-        ]
-      );
+  useEffect(() => {
+    fetchDashboard();
+  }, [fetchDashboard, ready]);
+
+  const goToSessions = () => {
+    const parentNav = navigation.getParent();
+    if (parentNav) {
+      parentNav.navigate('SessionsTab', { initialTab: 'upcoming' });
+      return;
+    }
+    navigation.navigate('SessionsTab', { initialTab: 'upcoming' });
+  };
+
+  const canJoin = (item: UpcomingSession) => {
+    if (item.sessionType !== 'video') return false;
+    if (item.bookingStatus !== 'confirmed') return false;
+    if (!item.sessionId) return false;
+    if (item.sessionStatus && ['completed', 'cancelled'].includes(item.sessionStatus)) return false;
+    return true;
+  };
+
+  const getRiskVisuals = (level: RiskLevel) => {
+    if (level === 'high') {
+      return {
+        label: 'High',
+        badgeBg: Colors.status.dangerSoft,
+        badgeText: Colors.status.danger,
+        icon: 'alert-circle-outline' as const,
+      };
+    }
+    if (level === 'medium') {
+      return {
+        label: 'Medium',
+        badgeBg: Colors.status.warningSoft,
+        badgeText: Colors.status.warning,
+        icon: 'warning-outline' as const,
+      };
+    }
+    return {
+      label: 'Stable',
+      badgeBg: Colors.status.successSoft,
+      badgeText: Colors.status.success,
+      icon: 'checkmark-circle-outline' as const,
+    };
+  };
+
+  const confirmBooking = async (item: UpcomingSession) => {
+    if (!item.slotId) {
+      Alert.alert('Cannot confirm', 'This booking does not have a linked availability slot.');
       return;
     }
 
+    setActionLoadingId(item.bookingId);
+    try {
+      const { data: slotLock, error: slotError } = await supabase
+        .from('availability_slots')
+        .update({ is_available: false })
+        .eq('id', item.slotId)
+        .eq('is_available', true)
+        .select('id')
+        .maybeSingle();
+
+      if (slotError) throw slotError;
+      if (!slotLock) throw new Error('This slot is no longer available.');
+
+      const { data: bookingUpdate, error: bookingError } = await supabase
+        .from('bookings')
+        .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+        .eq('id', item.bookingId)
+        .eq('status', 'pending_payment')
+        .select('id')
+        .maybeSingle();
+
+      if (bookingError) throw bookingError;
+      if (!bookingUpdate) throw new Error('Booking could not be confirmed.');
+
+      const { data: existingSession, error: existingSessionError } = await supabase
+        .from('sessions')
+        .select('id')
+        .eq('booking_id', item.bookingId)
+        .maybeSingle();
+
+      if (existingSessionError) throw existingSessionError;
+
+      if (!existingSession) {
+        const { error: createSessionError } = await supabase
+          .from('sessions')
+          .insert({
+            booking_id: item.bookingId,
+            status: 'scheduled',
+            video_call_id: `call_${item.bookingId.slice(0, 8)}`,
+          });
+
+        if (createSessionError) throw createSessionError;
+      }
+
+      Alert.alert('Booking confirmed', 'Client can now join the video session.');
+      fetchDashboard();
+    } catch (err: any) {
+      Alert.alert('Confirmation failed', err.message || 'Unable to confirm booking.');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleSendNudge = async (clientName: string, conversationId: string, reason: string) => {
     Alert.alert(
       'Send check-in',
-      `Send an automated check-in template to ${clientName}?`,
+      `Send a supportive follow-up to ${clientName}?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Send Template', onPress: async () => {
+        {
+          text: 'Send Template',
+          onPress: async () => {
             try {
-              const text = `Hi ${clientName}, I noticed you haven't checked in lately. Take a deep breath and let me know how you're feeling today!`;
+              const text = `Hi ${clientName}, I noticed your recent trend: ${reason}. Take a deep breath and let me know how you're feeling today.`;
               await supabase.from('messages').insert({
-                conversation_id: activeConvId,
+                conversation_id: conversationId,
                 sender_id: user?.id,
                 body: text,
                 message_type: 'text',
               });
-              await supabase.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', activeConvId);
+              await supabase
+                .from('conversations')
+                .update({ last_message_at: new Date().toISOString() })
+                .eq('id', conversationId);
               Alert.alert('Sent', 'Check-in sent successfully!');
-            } catch(e) {
+            } catch (sendError) {
               Alert.alert('Error', 'Failed to send message.');
             }
-        }},
+          },
+        },
       ]
     );
   };
 
+  const formatSessionTime = (iso: string) => {
+    const date = new Date(iso);
+    return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {loading && <LoadingState message="" />}
-        
-        {/* Header */}
+        {loading && <LoadingState message="Loading dashboard..." />}
+
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>Practice Dashboard</Text>
@@ -162,114 +364,219 @@ export const TherapistDashboardScreen: React.FC = () => {
           <Avatar uri={profile?.avatar_url} name={profile?.display_name || 'Dr.'} size={48} />
         </View>
 
-        {/* Stats Summary */}
+        {requiresSetup && (
+          <BackendSetupCard
+            title="CareScore Setup Required"
+            message={issue || undefined}
+            onRetry={refresh}
+          />
+        )}
+
+        {error && !loading && (
+          <Card style={styles.errorCard}>
+            <Text style={styles.errorTitle}>Dashboard warning</Text>
+            <Text style={styles.errorText}>{error}</Text>
+          </Card>
+        )}
+
         <View style={styles.statsContainer}>
           <Card style={styles.statCard}>
             <Ionicons name="people-outline" size={24} color={Colors.accent.primary} />
-            <Text style={styles.statValue}>14</Text>
+            <Text style={styles.statValue}>{stats.activeClients}</Text>
             <Text style={styles.statLabel}>Active Clients</Text>
           </Card>
           <Card style={styles.statCard}>
-            <Ionicons name="card-outline" size={24} color={Colors.status.success} />
-            <Text style={styles.statValue}>$1,240</Text>
-            <Text style={styles.statLabel}>Expected (Week)</Text>
+            <Ionicons name="calendar-outline" size={24} color={Colors.status.success} />
+            <Text style={styles.statValue}>{stats.upcomingCount}</Text>
+            <Text style={styles.statLabel}>Upcoming (7 days)</Text>
+          </Card>
+          <Card style={styles.statCard}>
+            <Ionicons name="card-outline" size={24} color={Colors.status.warning} />
+            <Text style={styles.statValue}>₹{stats.expectedRevenueInr}</Text>
+            <Text style={styles.statLabel}>Expected Revenue</Text>
           </Card>
         </View>
 
-        {/* Needs Attention Roster */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Needs Attention</Text>
-          <Text style={styles.sectionAction}>View all</Text>
+          <TouchableOpacity onPress={goToSessions}>
+            <Text style={styles.sectionAction}>View all</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Real Clients rendered if available */}
-        {realClients.map((conv) => {
-          const uProfile = Array.isArray(conv.users) ? conv.users[0] : conv.users;
-          const cName = uProfile?.display_name || uProfile?.first_name || 'Client';
-          return (
-            <Card key={conv.id} style={styles.clientCard}>
-            <View style={styles.clientHeader}>
-              <Avatar uri={uProfile?.avatar_url} name={cName} size={48} />
-              <View style={styles.clientInfo}>
-                <Text style={styles.clientName}>{cName}</Text>
-                <Text style={styles.clientLastContact}>Last contact: Active</Text>
+        {clients.length === 0 ? (
+          <EmptyState
+            icon="people-outline"
+            title="No clients yet"
+            message="Clients will appear here after they start a conversation with you."
+          />
+        ) : (
+          clients.map((client) => (
+            <Card key={client.conversationId} style={styles.clientCard}>
+              <View style={styles.clientHeader}>
+                <Avatar uri={client.avatar} name={client.name} size={48} />
+                <View style={styles.clientInfo}>
+                  <Text style={styles.clientName}>{client.name}</Text>
+                  <Text style={styles.clientLastContact}>Conversation active</Text>
+                </View>
+                <View
+                  style={[
+                    styles.riskBadge,
+                    { backgroundColor: getRiskVisuals(client.riskLevel).badgeBg },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.riskBadgeText,
+                      { color: getRiskVisuals(client.riskLevel).badgeText },
+                    ]}
+                  >
+                    {getRiskVisuals(client.riskLevel).label}
+                  </Text>
+                </View>
               </View>
-              {conv.isHighAlert && <View style={styles.alertDot} />}
-            </View>
-            <View style={styles.issueContainer}>
-              <Ionicons name="warning-outline" size={16} color={Colors.status.warning} />
-              <Text style={styles.issueText}>{conv.alertMsg || 'Needs check-in'}</Text>
-            </View>
-            <View style={styles.actionButtons}>
-              <TouchableOpacity 
-                style={[styles.actionBtn, styles.actionBtnOutline]}
-                onPress={() => navigation.navigate('ClientDetail', { clientId: uProfile?.id, clientName: cName })}
-              >
-                <Ionicons name="reader-outline" size={18} color={Colors.text.primary} />
-                <Text style={styles.actionBtnTextOutline}>View Notes</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.actionBtn, styles.actionBtnPrimary]}
-                onPress={() => handleSendNudge(cName, conv.id)}
-              >
-                <Ionicons name="paper-plane-outline" size={18} color={Colors.text.inverse} />
-                <Text style={styles.actionBtnTextPrimary}>Send Check-in</Text>
-              </TouchableOpacity>
-            </View>
-          </Card>
-          );
-        })}
-
-        {/* Dummy placeholders if less than 2 real clients */}
-        {realClients.length < 2 && DUMMY_CLIENTS_NEEDING_ATTENTION.map((client) => (
-          <Card key={client.id} style={styles.clientCard}>
-            <View style={styles.clientHeader}>
-              <Avatar uri={client.avatar} name={client.name} size={48} />
-              <View style={styles.clientInfo}>
-                <Text style={styles.clientName}>{client.name}</Text>
-                <Text style={styles.clientLastContact}>
-                  Last contact: {client.lastContact}
-                </Text>
+              <View style={styles.issueContainer}>
+                <Ionicons
+                  name={getRiskVisuals(client.riskLevel).icon}
+                  size={16}
+                  color={getRiskVisuals(client.riskLevel).badgeText}
+                />
+                <Text style={[styles.issueText, { color: getRiskVisuals(client.riskLevel).badgeText }]}>{client.alertMsg}</Text>
               </View>
-              {client.alertLevel === 'high' && (
-                <View style={styles.alertDot} />
+              {client.hasAutoNudge && (
+                <View style={styles.nudgeFlag}>
+                  <Ionicons name="notifications-outline" size={14} color={Colors.accent.primary} />
+                  <Text style={styles.nudgeFlagText}>Auto nudge triggered recently</Text>
+                </View>
               )}
-            </View>
-            <View style={styles.issueContainer}>
-              <Ionicons name="warning-outline" size={16} color={Colors.status.warning} />
-              <Text style={styles.issueText}>{client.issue}</Text>
-            </View>
-            <View style={styles.actionButtons}>
-              <TouchableOpacity style={[styles.actionBtn, styles.actionBtnOutline]}>
-                <Ionicons name="reader-outline" size={18} color={Colors.text.primary} />
-                <Text style={styles.actionBtnTextOutline}>View Notes</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.actionBtn, styles.actionBtnPrimary]}
-                onPress={() => handleSendNudge(client.name)}
-              >
-                <Ionicons name="paper-plane-outline" size={18} color={Colors.text.inverse} />
-                <Text style={styles.actionBtnTextPrimary}>Send Check-in</Text>
-              </TouchableOpacity>
-            </View>
-          </Card>
-        ))}
+              <View style={styles.actionButtons}>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.actionBtnOutline]}
+                  onPress={() => navigation.navigate('ClientDetail', { clientId: client.id, clientName: client.name })}
+                >
+                  <Ionicons name="reader-outline" size={18} color={Colors.text.primary} />
+                  <Text style={styles.actionBtnTextOutline}>View Notes</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.actionBtnPrimary]}
+                  onPress={() => handleSendNudge(client.name, client.conversationId, client.alertMsg)}
+                >
+                  <Ionicons name="paper-plane-outline" size={18} color={Colors.text.inverse} />
+                  <Text style={styles.actionBtnTextPrimary}>Send Check-in</Text>
+                </TouchableOpacity>
+              </View>
+            </Card>
+          ))
+        )}
 
-        {/* Upcoming Today */}
         <View style={[styles.sectionHeader, { marginTop: Spacing.xl }]}>
-          <Text style={styles.sectionTitle}>Upcoming Today</Text>
+          <Text style={styles.sectionTitle}>Upcoming Sessions</Text>
+          <TouchableOpacity onPress={goToSessions}>
+            <Text style={styles.sectionAction}>View all</Text>
+          </TouchableOpacity>
         </View>
-        
-        {DUMMY_UPCOMING_SESSIONS.map((session) => (
-          <Card key={session.id} style={styles.sessionCard}>
-            <Avatar uri={session.avatar} name={session.name} size={40} />
-            <Text style={styles.sessionName}>{session.name}</Text>
-            <View style={styles.sessionTimeBadge}>
-              <Text style={styles.sessionTime}>{session.time}</Text>
-            </View>
-          </Card>
-        ))}
 
+        {upcomingSessions.length === 0 ? (
+          <EmptyState
+            icon="calendar-outline"
+            title="No upcoming sessions"
+            message="Confirmed and pending sessions will appear here."
+          />
+        ) : (
+          upcomingSessions.map((session) => (
+            <Card key={session.bookingId} style={styles.sessionCard}>
+              <View style={styles.sessionHeader}>
+                <Avatar uri={session.clientAvatar} name={session.clientName} size={40} />
+                <View style={styles.sessionInfo}>
+                  <Text style={styles.sessionName}>{session.clientName}</Text>
+                  <Text style={styles.sessionTime}>{formatSessionTime(session.scheduledStartAt)}</Text>
+                </View>
+                <View
+                  style={[
+                    styles.statusPill,
+                    session.bookingStatus === 'pending_payment' ? styles.pendingPill : styles.confirmedPill,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.statusPillText,
+                      session.bookingStatus === 'pending_payment' ? styles.pendingPillText : styles.confirmedPillText,
+                    ]}
+                  >
+                    {session.bookingStatus === 'pending_payment' ? 'Pending' : 'Confirmed'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.sessionActions}>
+                {session.bookingStatus === 'pending_payment' ? (
+                  <TouchableOpacity
+                    style={[styles.actionBtn, styles.actionBtnPrimary, actionLoadingId === session.bookingId && styles.disabled]}
+                    disabled={actionLoadingId === session.bookingId}
+                    onPress={() => confirmBooking(session)}
+                  >
+                    <Text style={styles.actionBtnTextPrimary}>
+                      {actionLoadingId === session.bookingId ? 'Confirming...' : 'Confirm Booking'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.sessionActionRow}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, styles.actionBtnOutline]}
+                      onPress={() =>
+                        navigation.navigate('SessionPrep', {
+                          session: {
+                            id: session.sessionId,
+                            booking_id: session.bookingId,
+                            scheduled_start_at: session.scheduledStartAt,
+                            scheduled_end_at: session.scheduledEndAt,
+                            participant_id: session.clientId,
+                            participant_name: session.clientName,
+                            participant_avatar: session.clientAvatar,
+                            status: session.sessionStatus || 'scheduled',
+                            video_call_id: session.videoCallId,
+                            booking_status: session.bookingStatus,
+                            session_type: session.sessionType,
+                          },
+                        })
+                      }
+                    >
+                      <Text style={styles.actionBtnTextOutline}>Session Prep</Text>
+                    </TouchableOpacity>
+                    {canJoin(session) ? (
+                      <TouchableOpacity
+                        style={[styles.actionBtn, styles.actionBtnPrimary]}
+                        onPress={() =>
+                          navigation.navigate('VideoCall', {
+                            session: {
+                              id: session.sessionId,
+                              booking_id: session.bookingId,
+                              scheduled_start_at: session.scheduledStartAt,
+                              scheduled_end_at: session.scheduledEndAt,
+                              participant_id: session.clientId,
+                              participant_name: session.clientName,
+                              participant_avatar: session.clientAvatar,
+                              status: session.sessionStatus || 'scheduled',
+                              video_call_id: session.videoCallId,
+                              booking_status: session.bookingStatus,
+                              session_type: session.sessionType,
+                            },
+                          })
+                        }
+                      >
+                        <Text style={styles.actionBtnTextPrimary}>Join Session</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={styles.sessionHintWrap}>
+                        <Text style={styles.sessionHint}>Session room is being prepared.</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
+            </Card>
+          ))
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -286,7 +593,20 @@ const styles = StyleSheet.create({
   },
   greeting: { ...Typography.title1, color: Colors.text.primary },
   subtitle: { ...Typography.body, color: Colors.text.secondary, marginTop: 4 },
-  
+  errorCard: {
+    marginBottom: Spacing.md,
+    backgroundColor: Colors.status.warningSoft,
+    borderColor: Colors.status.warning + '20',
+    gap: Spacing.xs,
+  },
+  errorTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+  },
+  errorText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
   statsContainer: {
     flexDirection: 'row',
     gap: Spacing.md,
@@ -299,7 +619,6 @@ const styles = StyleSheet.create({
   },
   statValue: { ...Typography.title2, color: Colors.text.primary, marginTop: Spacing.xs },
   statLabel: { ...Typography.caption, color: Colors.text.secondary },
-
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -308,7 +627,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { ...Typography.title2, color: Colors.text.primary },
   sectionAction: { ...Typography.bodySemibold, color: Colors.accent.primary },
-
   clientCard: {
     marginBottom: Spacing.md,
     gap: Spacing.md,
@@ -323,11 +641,13 @@ const styles = StyleSheet.create({
   },
   clientName: { ...Typography.bodySemibold, color: Colors.text.primary },
   clientLastContact: { ...Typography.caption, color: Colors.text.secondary, marginTop: 2 },
-  alertDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.status.danger,
+  riskBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: Radius.pill,
+  },
+  riskBadgeText: {
+    ...Typography.micro,
   },
   issueContainer: {
     flexDirection: 'row',
@@ -337,7 +657,20 @@ const styles = StyleSheet.create({
     padding: Spacing.sm,
     borderRadius: Radius.md,
   },
-  issueText: { ...Typography.captionEmphasis, color: Colors.status.warning, flex: 1 },
+  issueText: { ...Typography.captionEmphasis, color: Colors.text.secondary, flex: 1 },
+  nudgeFlag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.accent.soft,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+  },
+  nudgeFlagText: {
+    ...Typography.caption,
+    color: Colors.accent.dark,
+  },
   actionButtons: {
     flexDirection: 'row',
     gap: Spacing.sm,
@@ -362,19 +695,56 @@ const styles = StyleSheet.create({
   },
   actionBtnTextOutline: { ...Typography.bodySemibold, color: Colors.text.primary, fontSize: 13 },
   actionBtnTextPrimary: { ...Typography.bodySemibold, color: Colors.text.inverse, fontSize: 13 },
-
   sessionCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
+    gap: Spacing.sm,
     marginBottom: Spacing.sm,
   },
-  sessionName: { ...Typography.bodySemibold, color: Colors.text.primary, flex: 1 },
-  sessionTimeBadge: {
-    backgroundColor: Colors.accent.soft,
+  sessionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  sessionInfo: {
+    flex: 1,
+  },
+  sessionName: { ...Typography.bodySemibold, color: Colors.text.primary },
+  sessionTime: { ...Typography.caption, color: Colors.text.secondary, marginTop: 2 },
+  statusPill: {
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
     borderRadius: Radius.pill,
   },
-  sessionTime: { ...Typography.captionEmphasis, color: Colors.accent.primary },
+  pendingPill: {
+    backgroundColor: Colors.status.warningSoft,
+  },
+  confirmedPill: {
+    backgroundColor: Colors.status.successSoft,
+  },
+  statusPillText: {
+    ...Typography.micro,
+  },
+  pendingPillText: {
+    color: Colors.status.warning,
+  },
+  confirmedPillText: {
+    color: Colors.status.success,
+  },
+  sessionActions: {
+    marginTop: Spacing.xs,
+  },
+  sessionActionRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    alignItems: 'center',
+  },
+  sessionHintWrap: {
+    flex: 1,
+  },
+  sessionHint: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
+  disabled: {
+    opacity: 0.6,
+  },
 });

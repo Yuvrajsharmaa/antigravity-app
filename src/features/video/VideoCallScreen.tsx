@@ -18,17 +18,22 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
   navigation,
 }) => {
   const { session } = route.params;
-  const { user } = useAuth();
+  const { isTherapistMode } = useAuth();
   const [callState, setCallState] = useState<'waiting' | 'connecting' | 'active' | 'ended'>('waiting');
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [elapsed, setElapsed] = useState(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const sessionDuration = Math.round(
+  const participantName = session.participant_name || session.therapist_name || 'Session participant';
+  const participantAvatar = session.participant_avatar || session.therapist_avatar || null;
+  const participantRoleLabel = isTherapistMode ? 'Client' : 'Therapist';
+
+  const calculatedDuration = Math.round(
     (new Date(session.scheduled_end_at).getTime() - new Date(session.scheduled_start_at).getTime()) / 60000
   );
+  const sessionDuration = Number.isFinite(calculatedDuration) && calculatedDuration > 0 ? calculatedDuration : 45;
   const totalSeconds = sessionDuration * 60;
 
   useEffect(() => {
@@ -37,48 +42,74 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
     };
   }, []);
 
-  const startCall = async () => {
-    setCallState('connecting');
+  const startTimer = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setElapsed((prev) => {
+        if (prev >= totalSeconds - 1) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          endCall();
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, 1000);
+  };
 
-    // Update session status
-    await supabase
+  const startCall = async () => {
+    if (!session.id) {
+      Alert.alert('Unavailable', 'This session is not ready to join yet.');
+      return;
+    }
+
+    setCallState('connecting');
+    setElapsed(0);
+
+    const now = new Date().toISOString();
+    const joinPayload = isTherapistMode
+      ? { joined_therapist_at: now }
+      : { joined_user_at: now };
+
+    const { error } = await supabase
       .from('sessions')
       .update({
         status: 'in_progress',
-        joined_user_at: new Date().toISOString(),
+        ...joinPayload,
       })
       .eq('id', session.id);
 
+    if (error) {
+      setCallState('waiting');
+      Alert.alert('Unable to join', error.message || 'Please try again.');
+      return;
+    }
+
     setTimeout(() => {
       setCallState('active');
-      timerRef.current = setInterval(() => {
-        setElapsed((prev) => {
-          if (prev >= totalSeconds - 1) {
-            endCall();
-            return prev;
-          }
-          return prev + 1;
-        });
-      }, 1000);
-    }, 1500);
+      startTimer();
+    }, 1200);
   };
 
   const endCall = async () => {
     if (timerRef.current) clearInterval(timerRef.current);
     setCallState('ended');
 
-    await supabase
-      .from('sessions')
-      .update({
-        status: 'completed',
-        ended_at: new Date().toISOString(),
-      })
-      .eq('id', session.id);
+    if (session.id) {
+      await supabase
+        .from('sessions')
+        .update({
+          status: 'completed',
+          ended_at: new Date().toISOString(),
+        })
+        .eq('id', session.id);
+    }
 
-    await supabase
-      .from('bookings')
-      .update({ status: 'completed' })
-      .eq('id', session.booking_id);
+    if (session.booking_id) {
+      await supabase
+        .from('bookings')
+        .update({ status: 'completed' })
+        .eq('id', session.booking_id);
+    }
   };
 
   const formatTime = (secs: number) => {
@@ -98,25 +129,27 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
           </View>
           <Text style={styles.endedTitle}>Session complete</Text>
           <Text style={styles.endedSubtitle}>
-            Great job taking this step.{'\n'}You can book another session anytime.
+            {isTherapistMode
+              ? 'Wrap up with a quick follow-up action.'
+              : 'Take 30 seconds to capture your post-session reflection.'}
           </Text>
 
           <View style={styles.endedActions}>
             <TouchableOpacity
               style={styles.endedBtn}
               onPress={() => {
-                navigation.navigate('Main', { screen: 'SessionsTab' });
+                navigation.navigate('PostSessionReflection', { session });
               }}
             >
-              <Text style={styles.endedBtnText}>View sessions</Text>
+              <Text style={styles.endedBtnText}>{isTherapistMode ? 'Open follow-up' : 'Reflect now'}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.endedBtn, styles.endedBtnPrimary]}
               onPress={() => {
-                navigation.navigate('Main', { screen: 'HomeTab' });
+                navigation.navigate('Main', { screen: 'SessionsTab', params: { initialTab: 'past' } });
               }}
             >
-              <Text style={[styles.endedBtnText, styles.endedBtnPrimaryText]}>Go home</Text>
+              <Text style={[styles.endedBtnText, styles.endedBtnPrimaryText]}>Later</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -133,8 +166,9 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
           </TouchableOpacity>
 
           <Card style={styles.waitingCard}>
-            <Avatar uri={session.therapist_avatar} name={session.therapist_name} size={72} />
-            <Text style={styles.waitingName}>{session.therapist_name}</Text>
+            <Avatar uri={participantAvatar} name={participantName} size={72} />
+            <Text style={styles.waitingName}>{participantName}</Text>
+            <Text style={styles.waitingRole}>{participantRoleLabel}</Text>
             <Text style={styles.waitingTime}>
               {new Date(session.scheduled_start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               {' · '}{sessionDuration} min
@@ -147,7 +181,6 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
             <PermissionRow icon="volume-high-outline" label="Speaker" granted={isSpeakerOn} />
           </View>
 
-          {/* Preview controls */}
           <View style={styles.previewControls}>
             <ControlButton
               icon={isMuted ? 'mic-off' : 'mic'}
@@ -178,31 +211,27 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
     );
   }
 
-  // Active call or connecting
   return (
     <View style={styles.callContainer}>
-      {/* Simulated remote video */}
       <View style={styles.remoteVideo}>
-        <Avatar uri={session.therapist_avatar} name={session.therapist_name} size={120} />
+        <Avatar uri={participantAvatar} name={participantName} size={120} />
         {callState === 'connecting' && (
           <Text style={styles.connectingText}>Connecting...</Text>
         )}
       </View>
 
-      {/* Top overlay */}
       <SafeAreaView style={styles.topOverlay}>
         <View style={styles.topBar}>
-          <Text style={styles.callName}>{session.therapist_name}</Text>
+          <Text style={styles.callName}>{participantName}</Text>
           <View style={[styles.timerBadge, remaining < 300 && styles.timerWarning]}>
             <Ionicons name="time-outline" size={14} color={remaining < 300 ? Colors.status.danger : Colors.text.inverse} />
             <Text style={[styles.timerText, remaining < 300 && styles.timerTextWarning]}>
-              {formatTime(remaining)}
+              {formatTime(Math.max(remaining, 0))}
             </Text>
           </View>
         </View>
       </SafeAreaView>
 
-      {/* Local preview */}
       <View style={styles.localPreview}>
         {isCameraOff ? (
           <View style={styles.localPreviewOff}>
@@ -215,7 +244,6 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
         )}
       </View>
 
-      {/* Bottom controls */}
       <SafeAreaView style={styles.bottomOverlay} edges={['bottom']}>
         <View style={styles.callControls}>
           <ControlButton
@@ -303,7 +331,6 @@ const ctrlStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.bg.primary },
 
-  // Waiting room
   waitingContainer: {
     flex: 1,
     paddingHorizontal: Spacing.xl,
@@ -325,11 +352,12 @@ const styles = StyleSheet.create({
   },
   waitingCard: {
     alignItems: 'center',
-    gap: Spacing.sm,
+    gap: Spacing.xs,
     marginBottom: Spacing.xl,
     width: '100%',
   },
   waitingName: { ...Typography.title2, color: Colors.text.primary },
+  waitingRole: { ...Typography.caption, color: Colors.text.secondary },
   waitingTime: { ...Typography.body, color: Colors.text.secondary },
   permissionsCard: {
     width: '100%',
@@ -357,7 +385,6 @@ const styles = StyleSheet.create({
   },
   joinBtnText: { ...Typography.bodySemibold, color: Colors.text.inverse },
 
-  // Active call
   callContainer: { flex: 1, backgroundColor: '#1a1a2e' },
   remoteVideo: {
     flex: 1,
@@ -444,7 +471,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Ended
   endedContainer: {
     flex: 1,
     justifyContent: 'center',
