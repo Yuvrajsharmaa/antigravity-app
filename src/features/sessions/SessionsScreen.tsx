@@ -102,11 +102,9 @@ export const SessionsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
   );
 
   const canJoin = (session: SessionItem) => {
-    const start = new Date(session.scheduled_start_at);
-    const now = new Date();
-    const fiveMinBefore = new Date(start.getTime() - 5 * 60000);
-    const end = new Date(session.scheduled_end_at);
-    return now >= fiveMinBefore && now <= end && ['scheduled', 'in_progress'].includes(session.status);
+    // For the prototype, allow joining any scheduled or in-progress session 
+    // regardless of the strict time bounds so it can be easily demonstrated.
+    return ['scheduled', 'in_progress'].includes(session.status);
   };
 
   const formatDateTime = (dateStr: string) => {
