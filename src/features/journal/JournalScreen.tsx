@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
 import { Card, Button, EmptyState, LoadingState, BackendSetupCard, ErrorState, PillChip } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
@@ -10,6 +9,7 @@ import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { useClientMetricsReadiness } from '../../core/hooks/useClientMetricsReadiness';
 import { careBuddyLine } from '../../core/utils/careBuddy';
+import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
 
 interface JournalEntry {
   id: string;
@@ -23,7 +23,7 @@ interface JournalEntry {
 
 export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user } = useAuth();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabSafeBottomPadding = useTabSafeBottomPadding(Spacing.xxl);
   const { ready, requiresSetup, issue, refresh } = useClientMetricsReadiness();
 
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -149,7 +149,7 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       <FlatList
         data={entries}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={[styles.listContent, { paddingBottom: tabBarHeight + Spacing.xxl }]}
+        contentContainerStyle={[styles.listContent, { paddingBottom: tabSafeBottomPadding }]}
         ListHeaderComponent={
           <>
             {requiresSetup ? (

@@ -41,6 +41,52 @@ Build **"Care Space"**, a comprehensive psychological consultation platform wher
 
 ## 📈 Recent Updates Log (Changelog)
 
+- **[Codex AGENT] - March 11, 2026 (UX + Stability Refinement: Splash Gate, Onboarding Split, Inline Loading, Layout Hardening)**
+  - Added branded in-app splash gate with deterministic boot behavior:
+    - New `src/features/auth/BrandedSplashScreen.tsx` (leaf icon + Care Space name, white-first visual).
+    - `src/navigation/AppNavigator.tsx` now enforces:
+      - minimum splash duration: ~1.2s,
+      - boot readiness hold while auth/profile are loading,
+      - splash fail-safe timeout so app never hangs on splash.
+    - Added app boot interface contract in `src/core/models/types.ts`:
+      - `AppBootState` (`booting`, `splashVisible`, `ready`).
+  - Split onboarding intro and name into separate steps:
+    - `src/features/onboarding/OnboardingScreen.tsx` now uses 6 steps (was 5):
+      - step 1: intro-only screen (no inputs),
+      - step 2: dedicated optional name input,
+      - remaining role-specific flow shifted forward.
+    - Updated step title mapping, progression gates, and render routing.
+    - Added resume compatibility logic:
+      - new AsyncStorage key version (`..._step_v2_...`),
+      - legacy key step mapping to preserve in-progress onboarding continuity.
+  - Refactored shared loading state to inline/no-box default and expanded state-view flexibility:
+    - `src/core/components/StateViews.tsx`:
+      - `LoadingState` now inline by default (no bordered card),
+      - added `style`, `contentStyle`, `boxed`, `centered` support,
+      - `EmptyState` and `ErrorState` now also support `style`, `contentStyle`, and `boxed`.
+  - Added reusable tab-safe spacing helper and applied it across primary long screens:
+    - New `src/core/hooks/useTabSafeBottomPadding.ts` (uses bottom-tab context safely with fallback).
+    - Applied in:
+      - `src/features/home/HomeScreen.tsx`
+      - `src/features/match/TherapistMatchScreen.tsx`
+      - `src/features/sessions/SessionsScreen.tsx`
+      - `src/features/messages/MessagesListScreen.tsx`
+      - `src/features/journal/JournalScreen.tsx`
+      - `src/features/profile/ProfileScreen.tsx`
+      - `src/features/profile/NotificationsScreen.tsx`
+    - Result: improved consistency for long-screen clipping and bottom-tab overlap behavior.
+  - Additional UI consistency and edge-case fixes:
+    - `src/features/home/HomeScreen.tsx` therapist mode now returns `TherapistDashboardScreen` directly (avoids nested header/safe-area layout conflicts).
+    - Added explicit state-view margins in key list screens so loading/error/empty never bleed outside expected content padding.
+  - Notification icon branding configuration:
+    - Updated `app.json`:
+      - added `expo-notifications` plugin config with branded Android icon/color.
+      - added Android `POST_NOTIFICATIONS` permission.
+    - `src/core/utils/wellbeingNotifications.ts` now logs explicit dev note for Expo Go notification limitations and recommends dev build for full behavior validation.
+  - Validation:
+    - `npx tsc --noEmit` passes.
+    - `npx expo config --type public` passes and confirms notification plugin config.
+
 - **[Codex AGENT] - March 11, 2026 (Edge-Case Follow-up: Route Guard + Tab-Safe Scrolling + Onboarding Header Simplification)**
   - Fixed remaining role-route mismatch in messages:
     - `src/features/messages/MessagesListScreen.tsx` now uses role contract checks for empty-state CTA.

@@ -246,6 +246,12 @@ export interface NudgeCooldownState {
   isBlocked: boolean;
 }
 
+export interface AppBootState {
+  booting: boolean;
+  splashVisible: boolean;
+  ready: boolean;
+}
+
 export interface CareNudgeEvent {
   id: string;
   user_id: string;

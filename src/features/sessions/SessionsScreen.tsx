@@ -9,7 +9,6 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
 import { Card, Avatar, EmptyState, LoadingState, Button, ErrorState } from '../../core/components';
@@ -18,6 +17,7 @@ import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { confirmBookingAndEnsureSession } from '../../core/services/careFlowService';
 import { asDependencyState, describeBlockingDependency, dependenciesReady } from '../../core/utils/flowDependencies';
+import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
 
 interface SessionItem {
   booking_id: string;
@@ -43,7 +43,7 @@ const getFirst = <T,>(value: T | T[] | null | undefined): T | undefined => {
 
 export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navigation, route }) => {
   const { user, isTherapistMode, isDevAdmin } = useAuth();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabSafeBottomPadding = useTabSafeBottomPadding(Spacing.xxl);
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -374,10 +374,11 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
       </View>
 
       {loading ? (
-        <LoadingState message="Loading sessions..." />
+        <LoadingState message="Loading sessions..." style={styles.screenState} />
       ) : loadError ? (
         <ErrorState
           message={loadError}
+          style={styles.screenState}
           onRetry={() => {
             setLoading(true);
             fetchSessions();
@@ -396,13 +397,14 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
           }
           actionLabel={tab === 'upcoming' && !isTherapistMode ? 'Find a therapist' : undefined}
           onAction={tab === 'upcoming' && !isTherapistMode ? () => navigation.navigate('MatchTab') : undefined}
+          style={styles.screenState}
         />
       ) : (
         <FlatList
           data={sessions}
           renderItem={renderSession}
           keyExtractor={(item) => item.booking_id}
-          contentContainerStyle={[styles.listContent, { paddingBottom: tabBarHeight + Spacing.xxl }]}
+          contentContainerStyle={[styles.listContent, { paddingBottom: tabSafeBottomPadding }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -459,6 +461,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing.xxxxl,
     gap: Spacing.sm,
+  },
+  screenState: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.md,
   },
   sessionCard: {
     gap: Spacing.sm,

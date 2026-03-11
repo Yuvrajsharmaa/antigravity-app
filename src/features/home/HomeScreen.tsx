@@ -9,12 +9,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Card, ErrorState, LoadingState } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { useCareJourney } from '../../core/hooks/useCareJourney';
+import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
 import { Colors, Radius, Spacing, Typography } from '../../core/theme';
 import { careBuddyGreeting, careBuddyLine, journeyStatusCopy } from '../../core/utils/careBuddy';
 import { getRoleModeContract } from '../../core/utils/roleAccess';
@@ -24,7 +24,7 @@ import { TherapistDashboardScreen } from '../therapist-dashboard/TherapistDashbo
 
 export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { profile, isTherapistMode, user } = useAuth();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabSafeBottomPadding = useTabSafeBottomPadding(Spacing.xxl);
   const roleMode = getRoleModeContract(profile?.role, isTherapistMode);
   const effectiveTherapistMode = roleMode.canUseTherapistMode && isTherapistMode;
   const [nextSession, setNextSession] = useState<any | null>(null);
@@ -142,6 +142,10 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     return 'Good evening';
   };
 
+  if (effectiveTherapistMode) {
+    return <TherapistDashboardScreen />;
+  }
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.header}>
@@ -154,16 +158,13 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      {effectiveTherapistMode ? (
-        <TherapistDashboardScreen />
-      ) : (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + Spacing.xxl }]}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent.primary} />
-          }
-        >
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabSafeBottomPadding }]}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent.primary} />
+        }
+      >
           <MentalHealthDashboard openSignal={checkInSignal} />
 
           {journeyLoading ? (
@@ -318,8 +319,7 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               <Text style={styles.actionBtnTextOutline}>Reflect</Text>
             </TouchableOpacity>
           </Card>
-        </ScrollView>
-      )}
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -360,6 +360,7 @@ const styles = StyleSheet.create({
   },
   journeyLoadingWrap: {
     minHeight: 120,
+    marginHorizontal: Spacing.xl,
     marginTop: Spacing.md,
   },
   journeyErrorWrap: {
