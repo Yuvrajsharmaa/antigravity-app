@@ -110,9 +110,10 @@ const toggleTag = (value: string, list: string[], setter: (next: string[]) => vo
 
 const getStepTitle = (isTherapistFlow: boolean, step: number) => {
   if (step === 0) return 'Welcome';
-  if (step === 1) return isTherapistFlow ? 'Care Focus' : 'What Brings You Here';
-  if (step === 2) return 'Quick Preferences';
-  if (step === 3) return isTherapistFlow ? 'Practice Profile' : 'Baseline Check-in';
+  if (step === 1) return 'Your Name';
+  if (step === 2) return isTherapistFlow ? 'Care Focus' : 'What Brings You Here';
+  if (step === 3) return 'Quick Preferences';
+  if (step === 4) return isTherapistFlow ? 'Practice Profile' : 'Baseline Check-in';
   return isTherapistFlow ? 'Availability & Compliance' : 'Care Buddy Settings';
 };
 
@@ -127,7 +128,7 @@ const parseTimeToMinutes = (value: string) => {
 export const OnboardingScreen: React.FC = () => {
   const { user, profile, refreshProfile } = useAuth();
   const isTherapistFlow = profile?.role === 'therapist';
-  const totalSteps = 5;
+  const totalSteps = 6;
 
   const { height: viewportHeight } = useWindowDimensions();
   const fade = useRef(new Animated.Value(1)).current;
@@ -167,6 +168,9 @@ export const OnboardingScreen: React.FC = () => {
   const [agreedBoundaries, setAgreedBoundaries] = useState(false);
 
   const stepStorageKey = user?.id
+    ? `care_space_onboarding_step_v2_${user.id}_${isTherapistFlow ? 'therapist' : 'client'}`
+    : null;
+  const legacyStepStorageKey = user?.id
     ? `care_space_onboarding_step_${user.id}_${isTherapistFlow ? 'therapist' : 'client'}`
     : null;
 
@@ -181,16 +185,25 @@ export const OnboardingScreen: React.FC = () => {
     if (!stepStorageKey) return;
 
     AsyncStorage.getItem(stepStorageKey)
-      .then((saved) => {
+      .then(async (saved) => {
         const parsed = Number.parseInt(saved || '', 10);
         if (Number.isFinite(parsed) && parsed >= 0 && parsed < totalSteps) {
           setStep(parsed);
+          return;
         }
+
+        if (!legacyStepStorageKey) return;
+        const legacySaved = await AsyncStorage.getItem(legacyStepStorageKey);
+        const legacyStep = Number.parseInt(legacySaved || '', 10);
+        if (!Number.isFinite(legacyStep) || legacyStep < 0) return;
+
+        const mappedLegacyStep = legacyStep === 0 ? 0 : Math.min(totalSteps - 1, legacyStep + 1);
+        setStep(mappedLegacyStep);
       })
       .catch(() => {
         // Resume is best effort.
       });
-  }, [stepStorageKey]);
+  }, [legacyStepStorageKey, stepStorageKey, totalSteps]);
 
   useEffect(() => {
     if (!stepStorageKey) return;
@@ -201,19 +214,20 @@ export const OnboardingScreen: React.FC = () => {
 
   const canProceed = useMemo(() => {
     if (step === 0) return true;
+    if (step === 1) return true;
 
-    if (step === 1) {
+    if (step === 2) {
       return isTherapistFlow ? selectedSpecialties.length > 0 : selectedIntents.length > 0;
     }
 
-    if (step === 2) {
+    if (step === 3) {
       if (isTherapistFlow) {
         return therapistLanguages.length > 0 && sessionPref.length > 0;
       }
       return language.length > 0 && sessionPref.length > 0;
     }
 
-    if (step === 3) {
+    if (step === 4) {
       if (isTherapistFlow) {
         return communicationStyle.length > 0;
       }
@@ -343,6 +357,9 @@ export const OnboardingScreen: React.FC = () => {
       if (stepStorageKey) {
         await AsyncStorage.removeItem(stepStorageKey);
       }
+      if (legacyStepStorageKey) {
+        await AsyncStorage.removeItem(legacyStepStorageKey);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Something went wrong while saving onboarding.';
       Alert.alert('Unable to finish onboarding', message);
@@ -379,19 +396,22 @@ export const OnboardingScreen: React.FC = () => {
       <Text style={styles.heroSubtitle}>Private. Structured. No long-term commitment needed.</Text>
 
       {!isTherapistFlow ? <Text style={styles.heroSafety}>This is not for emergencies.</Text> : null}
-
-      <View style={styles.welcomeInputWrap}>
-        <Text style={styles.fieldLabel}>What should we call you? (optional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="First name"
-          placeholderTextColor={Colors.text.tertiary}
-          value={firstName}
-          onChangeText={setFirstName}
-          autoCapitalize="words"
-        />
-      </View>
     </View>
+  );
+
+  const renderNameStep = () => (
+    <Card style={styles.stepCard}>
+      <Text style={styles.stepTitle}>What should we call you?</Text>
+      <Text style={styles.stepSubtitle}>Optional. You can edit this later in Profile.</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="First name"
+        placeholderTextColor={Colors.text.tertiary}
+        value={firstName}
+        onChangeText={setFirstName}
+        autoCapitalize="words"
+      />
+    </Card>
   );
 
   const renderSharedFocus = () => {
@@ -696,9 +716,10 @@ export const OnboardingScreen: React.FC = () => {
 
   const renderStepContent = () => {
     if (step === 0) return renderWelcome();
-    if (step === 1) return renderSharedFocus();
-    if (step === 2) return renderSharedPreferences();
-    if (step === 3) return isTherapistFlow ? renderTherapistPractice() : renderClientBaseline();
+    if (step === 1) return renderNameStep();
+    if (step === 2) return renderSharedFocus();
+    if (step === 3) return renderSharedPreferences();
+    if (step === 4) return isTherapistFlow ? renderTherapistPractice() : renderClientBaseline();
     return isTherapistFlow ? renderTherapistCompliance() : renderClientCareBuddy();
   };
 
@@ -984,9 +1005,6 @@ const styles = StyleSheet.create({
     ...Typography.captionEmphasis,
     color: Colors.status.warning,
     marginTop: 2,
-  },
-  welcomeInputWrap: {
-    marginTop: Spacing.md,
   },
   stepStack: {
     gap: Spacing.sm,

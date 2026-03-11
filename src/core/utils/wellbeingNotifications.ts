@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { supabase } from '../../services/supabase';
 import { careBuddyLine } from './careBuddy';
 
@@ -83,6 +84,12 @@ const getStorageKey = (userId: string) => `care_space_wellbeing_notif_ids_${user
 
 export const initializeNotifications = async () => {
   if (notificationsInitialized) return;
+
+  if (__DEV__ && Constants.appOwnership === 'expo') {
+    console.info(
+      '[Care Space] Notification behavior is limited in Expo Go. Use a development build to validate full icon and channel behavior.'
+    );
+  }
 
   Notifications.setNotificationHandler({
     handleNotification: async () => ({

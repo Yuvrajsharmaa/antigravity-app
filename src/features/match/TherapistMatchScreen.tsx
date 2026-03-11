@@ -10,13 +10,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Avatar, Button, Card, EmptyState, ErrorState, LoadingState, PillChip } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { MatchedTherapist } from '../../core/models/types';
 import { matchTherapistsForClient } from '../../core/services/matchingService';
 import { Colors, Radius, Shadow, Spacing, Typography } from '../../core/theme';
 import { supabase } from '../../services/supabase';
+import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
 
 type SessionPreference = 'chat' | 'video' | 'both';
 type TimePreference = 'morning' | 'afternoon' | 'evening' | 'flexible';
@@ -120,7 +120,7 @@ const flattenedIntentTags = (intentIds: string[]) => {
 
 export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user, profile, isTherapistMode, canUseTherapistMode } = useAuth();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabSafeBottomPadding = useTabSafeBottomPadding(Spacing.xxl);
   const [loadingPrefs, setLoadingPrefs] = useState(true);
   const [formStep, setFormStep] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -451,7 +451,7 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
   if (loadingPrefs) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <LoadingState message="Preparing your matching flow..." />
+        <LoadingState message="Preparing your matching flow..." style={styles.screenState} />
       </SafeAreaView>
     );
   }
@@ -463,6 +463,7 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
           icon="shield-checkmark-outline"
           title="Client mode required"
           message="Therapist matching intake is available only in client mode."
+          style={styles.screenState}
         />
       </SafeAreaView>
     );
@@ -472,7 +473,7 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + Spacing.xxl }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabSafeBottomPadding }]}
         refreshControl={
           showResults
             ? <RefreshControl refreshing={refreshing} onRefresh={onRetryRefresh} tintColor={Colors.accent.primary} />
@@ -537,9 +538,9 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
             </View>
           </Card>
         ) : resultsLoading ? (
-          <LoadingState message="Ranking therapists for your preferences..." />
+          <LoadingState message="Ranking therapists for your preferences..." style={styles.screenState} />
         ) : resultsError ? (
-          <ErrorState message={resultsError} onRetry={fetchMatches} />
+          <ErrorState message={resultsError} onRetry={fetchMatches} style={styles.screenState} />
         ) : curatedMatches.length === 0 ? (
           <EmptyState
             icon="leaf-outline"
@@ -547,6 +548,7 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
             message="Try broadening your preferences and check again in a few minutes."
             actionLabel="Retry"
             onAction={fetchMatches}
+            style={styles.screenState}
           />
         ) : (
           <View style={styles.resultsWrap}>
@@ -583,6 +585,10 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 112,
+  },
+  screenState: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.xl,
   },
   header: {
     paddingHorizontal: Spacing.xl,

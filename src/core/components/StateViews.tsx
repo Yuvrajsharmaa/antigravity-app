@@ -1,5 +1,13 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  StyleProp,
+  ViewStyle,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
 import { Typography } from '../theme/typography';
@@ -11,6 +19,9 @@ interface EmptyStateProps {
   message: string;
   actionLabel?: string;
   onAction?: () => void;
+  style?: StyleProp<ViewStyle>;
+  contentStyle?: StyleProp<ViewStyle>;
+  boxed?: boolean;
 }
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
@@ -19,63 +30,100 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   message,
   actionLabel,
   onAction,
+  style,
+  contentStyle,
+  boxed = true,
 }) => (
-  <View style={styles.container}>
-    <View style={styles.iconCircle}>
-      <Ionicons name={icon} size={32} color={Colors.accent.primary} />
+  <View style={[styles.stateRoot, boxed && styles.boxedContainer, style]}>
+    <View style={[styles.stateContent, contentStyle]}>
+      <View style={styles.iconCircle}>
+        <Ionicons name={icon} size={32} color={Colors.accent.primary} />
+      </View>
+      <Text style={styles.title}>{title}</Text>
+      <Text style={styles.message}>{message}</Text>
+      {actionLabel && onAction && (
+        <TouchableOpacity style={styles.actionBtn} onPress={onAction}>
+          <Text style={styles.actionText}>{actionLabel}</Text>
+        </TouchableOpacity>
+      )}
     </View>
-    <Text style={styles.title}>{title}</Text>
-    <Text style={styles.message}>{message}</Text>
-    {actionLabel && onAction && (
-      <TouchableOpacity style={styles.actionBtn} onPress={onAction}>
-        <Text style={styles.actionText}>{actionLabel}</Text>
-      </TouchableOpacity>
-    )}
   </View>
 );
 
 interface ErrorStateProps {
   message: string;
   onRetry?: () => void;
+  style?: StyleProp<ViewStyle>;
+  contentStyle?: StyleProp<ViewStyle>;
+  boxed?: boolean;
 }
 
-export const ErrorState: React.FC<ErrorStateProps> = ({ message, onRetry }) => (
-  <View style={styles.container}>
-    <View style={[styles.iconCircle, styles.errorCircle]}>
-      <Ionicons name="alert-circle-outline" size={32} color={Colors.status.danger} />
+export const ErrorState: React.FC<ErrorStateProps> = ({
+  message,
+  onRetry,
+  style,
+  contentStyle,
+  boxed = true,
+}) => (
+  <View style={[styles.stateRoot, boxed && styles.boxedContainer, style]}>
+    <View style={[styles.stateContent, contentStyle]}>
+      <View style={[styles.iconCircle, styles.errorCircle]}>
+        <Ionicons name="alert-circle-outline" size={32} color={Colors.status.danger} />
+      </View>
+      <Text style={styles.title}>Something went wrong</Text>
+      <Text style={styles.message}>{message}</Text>
+      {onRetry && (
+        <TouchableOpacity style={styles.actionBtn} onPress={onRetry}>
+          <Text style={styles.actionText}>Try again</Text>
+        </TouchableOpacity>
+      )}
     </View>
-    <Text style={styles.title}>Something went wrong</Text>
-    <Text style={styles.message}>{message}</Text>
-    {onRetry && (
-      <TouchableOpacity style={styles.actionBtn} onPress={onRetry}>
-        <Text style={styles.actionText}>Try again</Text>
-      </TouchableOpacity>
-    )}
   </View>
 );
 
-export const LoadingState: React.FC<{ message?: string }> = ({ message }) => (
-  <View style={styles.container}>
-    <View style={styles.loadingDots}>
-      {[0, 1, 2].map((i) => (
-        <View key={i} style={[styles.dot, { opacity: 0.3 + i * 0.3 }]} />
-      ))}
+interface LoadingStateProps {
+  message?: string;
+  style?: StyleProp<ViewStyle>;
+  contentStyle?: StyleProp<ViewStyle>;
+  boxed?: boolean;
+  centered?: boolean;
+}
+
+export const LoadingState: React.FC<LoadingStateProps> = ({
+  message,
+  style,
+  contentStyle,
+  boxed = false,
+  centered = true,
+}) => (
+  <View style={[styles.stateRoot, centered && styles.centeredState, boxed && styles.boxedContainer, style]}>
+    <View style={[styles.loadingContent, contentStyle]}>
+      <ActivityIndicator size="small" color={Colors.accent.primary} />
+      {message ? <Text style={styles.loadingMessage}>{message}</Text> : null}
     </View>
-    {message && <Text style={styles.message}>{message}</Text>}
   </View>
 );
 
 const styles = StyleSheet.create({
-  container: {
-    minHeight: 180,
+  stateRoot: {
+    minHeight: 120,
+    width: '100%',
+  },
+  centeredState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.xxl,
+  },
+  boxedContainer: {
     backgroundColor: Colors.bg.secondary,
     borderRadius: Radius.xl,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.xl,
+  },
+  stateContent: {
+    width: '100%',
+    alignItems: 'center',
   },
   iconCircle: {
     width: 72,
@@ -114,15 +162,15 @@ const styles = StyleSheet.create({
     ...Typography.bodyEmphasis,
     color: Colors.accent.primary,
   },
-  loadingDots: {
+  loadingContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: Spacing.md,
+    gap: Spacing.xs,
+    paddingVertical: Spacing.md,
   },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.accent.primary,
+  loadingMessage: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
   },
 });

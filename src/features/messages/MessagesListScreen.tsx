@@ -8,13 +8,13 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Colors, Radius, Typography, Spacing } from '../../core/theme';
 import { Avatar, EmptyState, LoadingState, ErrorState } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { getRoleModeContract } from '../../core/utils/roleAccess';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
+import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
 
 interface ConversationItem {
   id: string;
@@ -30,7 +30,7 @@ interface ConversationItem {
 
 export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user, isTherapistMode, profile } = useAuth();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabSafeBottomPadding = useTabSafeBottomPadding(Spacing.xxl);
   const roleMode = getRoleModeContract(profile?.role, isTherapistMode);
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -197,9 +197,9 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
       <Text style={styles.screenTitle}>Messages</Text>
 
       {loading ? (
-        <LoadingState message="Loading conversations..." />
+        <LoadingState message="Loading conversations..." style={styles.screenState} />
       ) : loadError ? (
-        <ErrorState message={loadError} onRetry={fetch} />
+        <ErrorState message={loadError} onRetry={fetch} style={styles.screenState} />
       ) : conversations.length === 0 ? (
         <EmptyState
           icon="chatbubbles-outline"
@@ -211,13 +211,14 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
           }
           actionLabel={roleMode.canAccessMatchFlow ? 'Go to Match' : undefined}
           onAction={roleMode.canAccessMatchFlow ? () => navigation.navigate('MatchTab') : undefined}
+          style={styles.screenState}
         />
       ) : (
         <FlatList
           data={conversations}
           renderItem={renderConversation}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={[styles.listContent, { paddingBottom: tabBarHeight + Spacing.xxl }]}
+          contentContainerStyle={[styles.listContent, { paddingBottom: tabSafeBottomPadding }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetch(); }} tintColor={Colors.accent.primary} />
@@ -241,6 +242,10 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing.xxxxl,
+  },
+  screenState: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.md,
   },
   conversationRow: {
     flexDirection: 'row',

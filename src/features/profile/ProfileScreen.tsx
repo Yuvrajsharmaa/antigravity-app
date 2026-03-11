@@ -6,13 +6,13 @@ import { Colors, Typography, Spacing, Radius } from '../../core/theme';
 import { Avatar, Card } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { supabase } from '../../services/supabase';
 import { useCareJourney } from '../../core/hooks/useCareJourney';
+import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
 
 export const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabSafeBottomPadding = useTabSafeBottomPadding(Spacing.xxxl);
   const {
     profile,
     user,
@@ -79,7 +79,7 @@ export const ProfileScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + Spacing.xxxl }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabSafeBottomPadding }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >

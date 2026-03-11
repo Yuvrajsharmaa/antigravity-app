@@ -2,13 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Switch, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Colors, Typography, Spacing } from '../../core/theme';
 import { Button, Card, PillChip } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { cancelWellbeingReminders, scheduleAdaptiveWellbeingReminders } from '../../core/utils/wellbeingNotifications';
 import { careBuddyLine } from '../../core/utils/careBuddy';
+import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
 
 const STORAGE_KEY = 'care_space_notification_preferences';
 const REMINDER_TIMES = ['09:00:00', '14:00:00', '19:00:00'];
@@ -31,7 +31,7 @@ const formatTime = (value: string) => value.slice(0, 5);
 
 export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user } = useAuth();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabSafeBottomPadding = useTabSafeBottomPadding(Spacing.xxl);
 
   const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_PREFS);
   const [loaded, setLoaded] = useState(false);
@@ -175,7 +175,7 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + Spacing.xxl }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabSafeBottomPadding }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>

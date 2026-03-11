@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -8,8 +8,10 @@ import { Colors, Typography } from '../core/theme';
 import { useAuth } from '../core/context/AuthContext';
 import { LoadingState } from '../core/components';
 import { getRoleModeContract } from '../core/utils/roleAccess';
+import { AppBootState } from '../core/models/types';
 
 // Screens
+import { BrandedSplashScreen } from '../features/auth/BrandedSplashScreen';
 import { WelcomeScreen } from '../features/auth/WelcomeScreen';
 import { OnboardingScreen } from '../features/onboarding/OnboardingScreen';
 import { HomeScreen } from '../features/home/HomeScreen';
@@ -70,6 +72,9 @@ const ProfileStackScreen = () => (
     <ProfileStack.Screen name="ProfileInfo" component={InfoScreen} />
   </ProfileStack.Navigator>
 );
+
+const MIN_SPLASH_MS = 1200;
+const SPLASH_FAILSAFE_MS = 10000;
 
 const MainTabs = () => {
   const { profile, isTherapistMode } = useAuth();
@@ -143,8 +148,32 @@ const MainTabs = () => {
 
 export const AppNavigator: React.FC = () => {
   const { session, profile, isLoading } = useAuth();
+  const [minSplashElapsed, setMinSplashElapsed] = useState(false);
+  const [splashFailsafeElapsed, setSplashFailsafeElapsed] = useState(false);
 
-  if (isLoading) {
+  useEffect(() => {
+    const minTimer = setTimeout(() => setMinSplashElapsed(true), MIN_SPLASH_MS);
+    const failSafeTimer = setTimeout(() => setSplashFailsafeElapsed(true), SPLASH_FAILSAFE_MS);
+    return () => {
+      clearTimeout(minTimer);
+      clearTimeout(failSafeTimer);
+    };
+  }, []);
+
+  const bootState = useMemo<AppBootState>(() => {
+    const splashVisible = !minSplashElapsed || (isLoading && !splashFailsafeElapsed);
+    return {
+      booting: isLoading,
+      splashVisible,
+      ready: !isLoading,
+    };
+  }, [isLoading, minSplashElapsed, splashFailsafeElapsed]);
+
+  if (bootState.splashVisible) {
+    return <BrandedSplashScreen />;
+  }
+
+  if (!bootState.ready) {
     return (
       <View style={{ flex: 1, backgroundColor: Colors.bg.primary, justifyContent: 'center' }}>
         <LoadingState message="Loading..." />
