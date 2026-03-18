@@ -9,6 +9,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { BackendSetupCard, EmptyState } from '../../core/components';
 import { useClientMetricsReadiness } from '../../core/hooks/useClientMetricsReadiness';
 import { useAuth } from '../../core/context/AuthContext';
+import { navigateBackSafe } from '../../navigation/safeBack';
 
 export const ClientDetailScreen: React.FC = () => {
   const route = useRoute<any>();
@@ -18,6 +19,7 @@ export const ClientDetailScreen: React.FC = () => {
   const { ready, requiresSetup, issue, refresh } = useClientMetricsReadiness();
 
   const [metrics, setMetrics] = useState<any[]>([]);
+  const [journalEntries, setJournalEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useFocusEffect(
@@ -35,9 +37,17 @@ export const ClientDetailScreen: React.FC = () => {
           .select('*')
           .eq('user_id', clientId)
           .order('created_at', { ascending: false });
-        
+
+        const { data: journalRows } = await supabase
+          .from('journal_entries')
+          .select('id, metric_id, created_at, body, entry_type')
+          .eq('user_id', clientId)
+          .order('created_at', { ascending: false })
+          .limit(200);
+
         if (!error && data) {
-          setMetrics(data);
+          setMetrics(data || []);
+          setJournalEntries(journalRows || []);
         }
         setLoading(false);
       };
@@ -55,7 +65,7 @@ export const ClientDetailScreen: React.FC = () => {
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => navigateBackSafe(navigation, 'HomeMain')} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={Colors.text.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{clientName}'s Notes</Text>
@@ -90,36 +100,45 @@ export const ClientDetailScreen: React.FC = () => {
           </View>
         ) : (
           metrics.map((log) => (
-            <View key={log.id} style={styles.logCard}>
-              <View style={styles.logHeader}>
-                <Text style={styles.logDate}>{formatDate(log.created_at)}</Text>
-                <View style={styles.scoreBadge}>
-                  <Text style={styles.scoreText}>CareScore: {log.care_score_snapshot}</Text>
-                </View>
-              </View>
+            (() => {
+              const matchedJournal = journalEntries.find((entry) => {
+                if (entry.metric_id && entry.metric_id === log.id) return true;
+                return formatDate(entry.created_at) === formatDate(log.created_at);
+              });
 
-              <View style={styles.row}>
-                <View style={styles.dataBadge}>
-                  <Ionicons name="happy-outline" size={16} color={Colors.accent.primary} />
-                  <Text style={styles.dataText}>{log.mood}</Text>
-                </View>
-                <View style={styles.dataBadge}>
-                  <Ionicons name="time-outline" size={16} color={Colors.accent.primary} />
-                  <Text style={styles.dataText}>{log.sleep_hours}h sleep</Text>
-                </View>
-                <View style={[styles.dataBadge, log.stress_level >= 4 && { backgroundColor: Colors.status.dangerSoft }]}>
-                  <Ionicons name="water-outline" size={16} color={log.stress_level >= 4 ? Colors.status.danger : Colors.accent.primary} />
-                  <Text style={[styles.dataText, log.stress_level >= 4 && { color: Colors.status.danger }]}>Stress Lvl {log.stress_level}</Text>
-                </View>
-              </View>
+              return (
+                <View key={log.id} style={styles.logCard}>
+                  <View style={styles.logHeader}>
+                    <Text style={styles.logDate}>{formatDate(log.created_at)}</Text>
+                    <View style={styles.scoreBadge}>
+                      <Text style={styles.scoreText}>CareScore: {log.care_score_snapshot}</Text>
+                    </View>
+                  </View>
 
-              {!!log.journal_entry && (
-                <View style={styles.journalBox}>
-                  <Text style={styles.journalLabel}>Journal Entry:</Text>
-                  <Text style={styles.journalText}>{log.journal_entry}</Text>
+                  <View style={styles.row}>
+                    <View style={styles.dataBadge}>
+                      <Ionicons name="happy-outline" size={16} color={Colors.accent.primary} />
+                      <Text style={styles.dataText}>{log.mood}</Text>
+                    </View>
+                    <View style={styles.dataBadge}>
+                      <Ionicons name="time-outline" size={16} color={Colors.accent.primary} />
+                      <Text style={styles.dataText}>{log.sleep_hours}h sleep</Text>
+                    </View>
+                    <View style={[styles.dataBadge, log.stress_level >= 4 && { backgroundColor: Colors.status.dangerSoft }]}>
+                      <Ionicons name="water-outline" size={16} color={log.stress_level >= 4 ? Colors.status.danger : Colors.accent.primary} />
+                      <Text style={[styles.dataText, log.stress_level >= 4 && { color: Colors.status.danger }]}>Stress Lvl {log.stress_level}</Text>
+                    </View>
+                  </View>
+
+                  {(matchedJournal?.body || log.journal_entry) ? (
+                    <View style={styles.journalBox}>
+                      <Text style={styles.journalLabel}>Journal note:</Text>
+                      <Text style={styles.journalText}>{matchedJournal?.body || log.journal_entry}</Text>
+                    </View>
+                  ) : null}
                 </View>
-              )}
-            </View>
+              );
+            })()
           ))
         )}
         </>
@@ -171,7 +190,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   logCard: {
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderRadius: Radius.lg,
     padding: Spacing.md,
     marginBottom: Spacing.md,

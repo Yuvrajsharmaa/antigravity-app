@@ -1,21 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Avatar, Card, LoadingState, EmptyState, BackendSetupCard } from '../../core/components';
+import { Avatar, Button, Card, LoadingState, EmptyState, BackendSetupCard, CoveModal } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useClientMetricsReadiness } from '../../core/hooks/useClientMetricsReadiness';
 import { assessCareRisk, riskPriority } from '../../core/utils/careRisk';
-import { RiskLevel } from '../../core/models/types';
+import { CoveModalAction, CoveModalVariant, RiskLevel } from '../../core/models/types';
 import {
   confirmBookingAndEnsureSession,
   createCareNudgeEvent,
   getNudgeCooldownState,
 } from '../../core/services/careFlowService';
 import { therapistNudgePrefill } from '../../core/utils/careBuddy';
+import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
+import { localDateKey } from '../../core/utils/date';
 
 interface DashboardClient {
   id: string;
@@ -52,7 +54,7 @@ const getFirst = <T,>(value: T | T[] | null | undefined): T | undefined => {
   return Array.isArray(value) ? value[0] : value;
 };
 
-const toDateKey = (iso: string) => new Date(iso).toISOString().slice(0, 10);
+const toDateKey = (iso: string) => localDateKey(new Date(iso));
 
 const computeRhythmDays = (metrics: Array<{ created_at: string }>) => {
   if (!metrics.length) return 0;
@@ -86,6 +88,7 @@ export const TherapistDashboardScreen: React.FC = () => {
   const { profile, user, isTherapistMode, canUseTherapistMode } = useAuth();
   const navigation = useNavigation<any>();
   const { ready, requiresSetup, issue, refresh } = useClientMetricsReadiness();
+  const tabSafeBottomPadding = useTabSafeBottomPadding(Spacing.xxl);
 
   const [clients, setClients] = useState<DashboardClient[]>([]);
   const [upcomingSessions, setUpcomingSessions] = useState<UpcomingSession[]>([]);
@@ -93,6 +96,45 @@ export const TherapistDashboardScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [dismissedClientIds, setDismissedClientIds] = useState<string[]>([]);
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    variant: CoveModalVariant;
+    title: string;
+    message: string;
+    primaryAction?: CoveModalAction | null;
+    secondaryAction?: CoveModalAction | null;
+  }>({
+    visible: false,
+    variant: 'info',
+    title: '',
+    message: '',
+    primaryAction: null,
+    secondaryAction: null,
+  });
+
+  const showModal = React.useCallback(
+    (
+      variant: CoveModalVariant,
+      title: string,
+      message: string,
+      primaryAction?: CoveModalAction | null,
+      secondaryAction?: CoveModalAction | null,
+    ) => {
+      setModalState({
+        visible: true,
+        variant,
+        title,
+        message,
+        primaryAction: primaryAction || {
+          label: 'Okay',
+          onPress: () => setModalState((prev) => ({ ...prev, visible: false })),
+        },
+        secondaryAction: secondaryAction || null,
+      });
+    },
+    [],
+  );
 
   const fetchDashboard = React.useCallback(async () => {
     if (!user) return;
@@ -317,7 +359,7 @@ export const TherapistDashboardScreen: React.FC = () => {
 
   const confirmBooking = async (item: UpcomingSession) => {
     if (!item.slotId) {
-      Alert.alert('Cannot confirm', 'This booking does not have a linked availability slot.');
+      showModal('blocking', 'Cannot confirm', 'This booking does not have a linked availability slot.');
       return;
     }
 
@@ -328,10 +370,10 @@ export const TherapistDashboardScreen: React.FC = () => {
         slotId: item.slotId,
       });
 
-      Alert.alert('Booking confirmed', 'Client can now join the video session.');
+      showModal('success', 'Booking confirmed', 'Client can now join the video session.');
       fetchDashboard();
     } catch (err: any) {
-      Alert.alert('Confirmation failed', err.message || 'Unable to confirm booking.');
+      showModal('error', 'Confirmation failed', err.message || 'Unable to confirm booking.');
     } finally {
       setActionLoadingId(null);
     }
@@ -341,68 +383,103 @@ export const TherapistDashboardScreen: React.FC = () => {
     if (!user?.id) return;
     const client = clients.find((item) => item.conversationId === conversationId);
     if (!client?.id) {
-      Alert.alert('Unavailable', 'Client context missing. Please refresh and try again.');
+      showModal('error', 'Unavailable', 'Client context missing. Please refresh and try again.');
       return;
     }
 
-    Alert.alert(
-      'Send check-in',
+    showModal(
+      'confirm',
+      'Send check-in?',
       `Send a supportive follow-up to ${clientName}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Send Template',
-          onPress: async () => {
-            try {
-              const cooldown = await getNudgeCooldownState({
-                userId: client.id,
-                therapistId: user.id,
-                source: 'therapist_manual',
-                cooldownHours: 24,
-              });
-              if (cooldown.isBlocked) {
-                Alert.alert(
-                  'Cooldown active',
-                  'A manual therapist nudge was already sent in the last 24 hours.',
-                );
-                return;
-              }
-
-              const riskLevel = reason.toLowerCase().includes('high') ? 'high' : reason.toLowerCase().includes('strain') ? 'medium' : 'stable';
-              const text = `Hi ${clientName}, ${therapistNudgePrefill(riskLevel as RiskLevel, reason)}`;
-              await supabase.from('messages').insert({
-                conversation_id: conversationId,
-                sender_id: user.id,
-                body: text,
-                message_type: 'text',
-              });
-              await supabase
-                .from('conversations')
-                .update({ last_message_at: new Date().toISOString() })
-                .eq('id', conversationId);
-
-              await createCareNudgeEvent({
-                userId: client.id,
-                therapistId: user.id,
-                triggerType: 'therapist_checkin',
-                riskLevel: riskLevel as RiskLevel,
-                source: 'therapist_manual',
-                messagePreview: text,
-              });
-              Alert.alert('Sent', 'Check-in sent successfully!');
-            } catch (sendError) {
-              Alert.alert('Error', 'Failed to send message.');
+      {
+        label: 'Send template',
+        onPress: async () => {
+          try {
+            const cooldown = await getNudgeCooldownState({
+              userId: client.id,
+              therapistId: user.id,
+              source: 'therapist_manual',
+              cooldownHours: 24,
+            });
+            if (cooldown.isBlocked) {
+              showModal(
+                'info',
+                'Cooldown active',
+                'A manual nudge was already sent in the last 24 hours.',
+              );
+              return;
             }
-          },
+
+            const riskLevel = reason.toLowerCase().includes('high')
+              ? 'high'
+              : reason.toLowerCase().includes('strain')
+                ? 'medium'
+                : 'stable';
+            const text = `Hi ${clientName}, ${therapistNudgePrefill(riskLevel as RiskLevel, reason)}`;
+            await supabase.from('messages').insert({
+              conversation_id: conversationId,
+              sender_id: user.id,
+              body: text,
+              message_type: 'text',
+            });
+            await supabase
+              .from('conversations')
+              .update({ last_message_at: new Date().toISOString() })
+              .eq('id', conversationId);
+
+            await createCareNudgeEvent({
+              userId: client.id,
+              therapistId: user.id,
+              triggerType: 'therapist_checkin',
+              riskLevel: riskLevel as RiskLevel,
+              source: 'therapist_manual',
+              messagePreview: text,
+            });
+            showModal('success', 'Sent', 'Check-in sent successfully.');
+          } catch {
+            showModal('error', 'Error', 'Failed to send message.');
+          }
         },
-      ]
+      },
+      {
+        label: 'Cancel',
+        onPress: () => setModalState((prev) => ({ ...prev, visible: false })),
+      },
     );
+  };
+
+  const openChatForClient = (client: DashboardClient) => {
+    const parentNav = navigation.getParent();
+    const payload = {
+      screen: 'Chat',
+      params: {
+        conversationId: client.conversationId,
+        therapistName: client.name,
+        therapistAvatar: client.avatar,
+        therapistId: client.id,
+        attentionCue: {
+          riskLevel: client.riskLevel,
+          reason: client.alertMsg,
+          nudgeRecommended: client.riskLevel !== 'stable',
+        },
+      },
+    };
+
+    if (parentNav) {
+      parentNav.navigate('MessagesTab', payload);
+      return;
+    }
+    navigation.navigate('MessagesTab', payload);
   };
 
   const formatSessionTime = (iso: string) => {
     const date = new Date(iso);
     return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
+
+  const visibleAttentionClients = clients
+    .filter((item) => !dismissedClientIds.includes(item.id))
+    .slice(0, 8);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -415,7 +492,7 @@ export const TherapistDashboardScreen: React.FC = () => {
           />
         </View>
       ) : (
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: tabSafeBottomPadding }]}>
         {loading && <LoadingState message="Loading dashboard..." />}
 
         <View style={styles.header}>
@@ -466,80 +543,75 @@ export const TherapistDashboardScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
-        {clients.length === 0 ? (
+        {visibleAttentionClients.length === 0 ? (
           <EmptyState
             icon="people-outline"
-            title="No clients yet"
-            message="Clients will appear here after they start a conversation with you."
+            title="No attention items"
+            message="Client signals that need action will appear here."
           />
         ) : (
-          clients.map((client) => (
-            <Card key={client.conversationId} style={styles.clientCard}>
-              <View style={styles.clientHeader}>
-                <Avatar uri={client.avatar} name={client.name} size={48} />
-                <View style={styles.clientInfo}>
-                  <Text style={styles.clientName}>{client.name}</Text>
-                  <Text style={styles.clientLastContact}>Conversation active</Text>
-                </View>
-                <View
-                  style={[
-                    styles.riskBadge,
-                    { backgroundColor: getRiskVisuals(client.riskLevel).badgeBg },
-                  ]}
-                >
-                  <Text
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.attentionScrollRow}
+          >
+            {visibleAttentionClients.map((client) => (
+              <Card key={client.conversationId} style={styles.clientCard}>
+                <View style={styles.clientHeader}>
+                  <Avatar uri={client.avatar} name={client.name} size={48} />
+                  <View style={styles.clientInfo}>
+                    <Text style={styles.clientName}>{client.name}</Text>
+                    <Text style={styles.clientLastContact} numberOfLines={1}>{client.alertMsg}</Text>
+                  </View>
+                  <View
                     style={[
-                      styles.riskBadgeText,
-                      { color: getRiskVisuals(client.riskLevel).badgeText },
+                      styles.riskBadge,
+                      { backgroundColor: getRiskVisuals(client.riskLevel).badgeBg },
                     ]}
                   >
-                    {getRiskVisuals(client.riskLevel).label}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.issueContainer}>
-                <Ionicons
-                  name={getRiskVisuals(client.riskLevel).icon}
-                  size={16}
-                  color={getRiskVisuals(client.riskLevel).badgeText}
-                />
-                <Text style={[styles.issueText, { color: getRiskVisuals(client.riskLevel).badgeText }]}>{client.alertMsg}</Text>
-              </View>
-              <View style={styles.reasonChipRow}>
-                {client.reasonChips.map((chip) => (
-                  <View key={`${client.id}-${chip}`} style={styles.reasonChip}>
-                    <Text style={styles.reasonChipText}>{chip}</Text>
+                    <Text
+                      style={[
+                        styles.riskBadgeText,
+                        { color: getRiskVisuals(client.riskLevel).badgeText },
+                      ]}
+                    >
+                      {getRiskVisuals(client.riskLevel).label}
+                    </Text>
                   </View>
-                ))}
-              </View>
-              <View style={styles.promptCard}>
-                <Ionicons name="sparkles-outline" size={14} color={Colors.accent.primary} />
-                <Text style={styles.promptText}>{client.openingPrompt}</Text>
-              </View>
-              {client.hasAutoNudge && (
-                <View style={styles.nudgeFlag}>
-                  <Ionicons name="notifications-outline" size={14} color={Colors.accent.primary} />
-                  <Text style={styles.nudgeFlagText}>Auto nudge triggered recently</Text>
+                  <TouchableOpacity
+                    onPress={() => setDismissedClientIds((prev) => [...prev, client.id])}
+                    accessibilityRole="button"
+                    accessibilityLabel="Dismiss alert"
+                  >
+                    <Ionicons name="close" size={18} color={Colors.text.tertiary} />
+                  </TouchableOpacity>
                 </View>
-              )}
-              <View style={styles.actionButtons}>
-                <TouchableOpacity
-                  style={[styles.actionBtn, styles.actionBtnOutline]}
-                  onPress={() => navigation.navigate('ClientDetail', { clientId: client.id, clientName: client.name })}
-                >
-                  <Ionicons name="reader-outline" size={18} color={Colors.text.primary} />
-                  <Text style={styles.actionBtnTextOutline}>View Notes</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionBtn, styles.actionBtnPrimary]}
-                  onPress={() => handleSendNudge(client.name, client.conversationId, client.alertMsg)}
-                >
-                  <Ionicons name="paper-plane-outline" size={18} color={Colors.text.inverse} />
-                  <Text style={styles.actionBtnTextPrimary}>Send Check-in</Text>
-                </TouchableOpacity>
-              </View>
-            </Card>
-          ))
+                {client.hasAutoNudge ? (
+                  <View style={styles.nudgeFlag}>
+                    <Text style={styles.nudgeFlagText}>Nudge sent recently</Text>
+                  </View>
+                ) : null}
+                <View style={styles.actionButtons}>
+                  <Button
+                    title="Open chat"
+                    variant="secondary"
+                    fullWidth={false}
+                    style={{ flex: 1 }}
+                    icon={<Ionicons name="chatbubble-ellipses-outline" size={18} color={Colors.text.primary} />}
+                    onPress={() => openChatForClient(client)}
+                  />
+                  <Button
+                    title="Send check-in"
+                    variant="primary"
+                    fullWidth={false}
+                    style={{ flex: 1 }}
+                    icon={<Ionicons name="paper-plane-outline" size={16} color={Colors.text.inverse} />}
+                    onPress={() => handleSendNudge(client.name, client.conversationId, client.alertMsg)}
+                  />
+                </View>
+              </Card>
+            ))}
+          </ScrollView>
         )}
 
         <View style={[styles.sectionHeader, { marginTop: Spacing.xl }]}>
@@ -583,19 +655,20 @@ export const TherapistDashboardScreen: React.FC = () => {
 
               <View style={styles.sessionActions}>
                 {session.bookingStatus === 'pending_payment' ? (
-                  <TouchableOpacity
-                    style={[styles.actionBtn, styles.actionBtnPrimary, actionLoadingId === session.bookingId && styles.disabled]}
-                    disabled={actionLoadingId === session.bookingId}
+                  <Button
+                    title="Confirm booking"
                     onPress={() => confirmBooking(session)}
-                  >
-                    <Text style={styles.actionBtnTextPrimary}>
-                      {actionLoadingId === session.bookingId ? 'Confirming...' : 'Confirm Booking'}
-                    </Text>
-                  </TouchableOpacity>
+                    variant="primary"
+                    loading={actionLoadingId === session.bookingId}
+                    disabled={actionLoadingId === session.bookingId}
+                  />
                 ) : (
                   <View style={styles.sessionActionRow}>
-                    <TouchableOpacity
-                      style={[styles.actionBtn, styles.actionBtnOutline]}
+                    <Button
+                      title="Session prep"
+                      variant="secondary"
+                      fullWidth={false}
+                      style={{ flex: 1 }}
                       onPress={() =>
                         navigation.navigate('SessionPrep', {
                           session: {
@@ -613,12 +686,13 @@ export const TherapistDashboardScreen: React.FC = () => {
                           },
                         })
                       }
-                    >
-                      <Text style={styles.actionBtnTextOutline}>Session Prep</Text>
-                    </TouchableOpacity>
+                    />
                     {canJoin(session) ? (
-                      <TouchableOpacity
-                        style={[styles.actionBtn, styles.actionBtnPrimary]}
+                      <Button
+                        title="Join session"
+                        variant="primary"
+                        fullWidth={false}
+                        style={{ flex: 1 }}
                         onPress={() =>
                           navigation.navigate('VideoCall', {
                             session: {
@@ -636,9 +710,7 @@ export const TherapistDashboardScreen: React.FC = () => {
                             },
                           })
                         }
-                      >
-                        <Text style={styles.actionBtnTextPrimary}>Join Session</Text>
-                      </TouchableOpacity>
+                      />
                     ) : (
                       <View style={styles.sessionHintWrap}>
                         <Text style={styles.sessionHint}>Session room is being prepared.</Text>
@@ -652,6 +724,16 @@ export const TherapistDashboardScreen: React.FC = () => {
         )}
       </ScrollView>
       )}
+
+      <CoveModal
+        visible={modalState.visible}
+        variant={modalState.variant}
+        title={modalState.title}
+        message={modalState.message}
+        primaryAction={modalState.primaryAction || undefined}
+        secondaryAction={modalState.secondaryAction || undefined}
+        onDismiss={() => setModalState((prev) => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 };
@@ -663,7 +745,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: Spacing.xl,
   },
-  scrollContent: { padding: Spacing.xl, paddingBottom: 100 },
+  scrollContent: { padding: Spacing.xl, paddingBottom: Spacing.xxl },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -706,9 +788,14 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { ...Typography.title2, color: Colors.text.primary },
   sectionAction: { ...Typography.bodySemibold, color: Colors.accent.primary },
-  clientCard: {
-    marginBottom: Spacing.md,
+  attentionScrollRow: {
+    paddingRight: Spacing.md,
     gap: Spacing.md,
+  },
+  clientCard: {
+    width: 332,
+    marginBottom: Spacing.sm,
+    gap: Spacing.sm,
     borderRadius: 24,
   },
   clientHeader: {
@@ -729,15 +816,6 @@ const styles = StyleSheet.create({
   riskBadgeText: {
     ...Typography.micro,
   },
-  issueContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    backgroundColor: Colors.status.warningSoft,
-    padding: Spacing.sm,
-    borderRadius: Radius.md,
-  },
-  issueText: { ...Typography.captionEmphasis, color: Colors.text.secondary, flex: 1 },
   reasonChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -758,7 +836,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.xs,
     alignItems: 'flex-start',
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
@@ -772,13 +850,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   nudgeFlag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    backgroundColor: Colors.accent.soft,
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.bg.tertiary,
     borderRadius: Radius.md,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 6,
+    paddingHorizontal: Spacing.xs,
+    paddingVertical: 4,
   },
   nudgeFlagText: {
     ...Typography.caption,
