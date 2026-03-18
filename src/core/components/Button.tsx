@@ -6,7 +6,9 @@ import {
   ViewStyle,
   TextStyle,
   ActivityIndicator,
+  View,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../theme/colors';
 import { Typography } from '../theme/typography';
 import { Radius, Spacing } from '../theme/spacing';
@@ -36,6 +38,7 @@ export const Button: React.FC<ButtonProps> = ({
   style,
   textStyle,
 }) => {
+  const isPrimary = variant === 'primary';
   const containerStyle = [
     styles.base,
     styles[`${variant}Container`],
@@ -59,10 +62,31 @@ export const Button: React.FC<ButtonProps> = ({
       onPress={onPress}
       disabled={disabled || loading}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: disabled || loading, busy: loading }}
     >
-      {loading ? (
+      {isPrimary ? (
+        <>
+          <LinearGradient
+            colors={[Colors.accent.primary, Colors.accent.dark]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.primaryOverlay} />
+          {loading ? (
+            <ActivityIndicator color={Colors.text.inverse} size="small" />
+          ) : (
+            <>
+              {icon}
+              <Text style={labelStyle}>{title}</Text>
+            </>
+          )}
+        </>
+      ) : loading ? (
         <ActivityIndicator
-          color={variant === 'primary' || variant === 'danger' ? '#fff' : Colors.accent.primary}
+          color={variant === 'danger' ? Colors.text.inverse : Colors.text.primary}
           size="small"
         />
       ) : (
@@ -80,8 +104,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: Radius.lg,
+    borderRadius: Radius.xl,
     gap: Spacing.xs,
+    overflow: 'hidden',
   },
   fullWidth: {
     width: '100%',
@@ -92,14 +117,18 @@ const styles = StyleSheet.create({
 
   // Variants
   primaryContainer: {
-    backgroundColor: Colors.accent.primary,
     borderWidth: 1,
-    borderColor: Colors.accent.dark + '22',
+    borderColor: 'rgba(0,0,0,0.10)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.10,
+    shadowRadius: 10,
+    elevation: 2,
   },
   secondaryContainer: {
-    backgroundColor: Colors.accent.soft,
+    backgroundColor: Colors.ui.glass,
     borderWidth: 1,
-    borderColor: Colors.accent.primary + '28',
+    borderColor: Colors.stroke.soft,
   },
   ghostContainer: {
     backgroundColor: 'transparent',
@@ -116,20 +145,26 @@ const styles = StyleSheet.create({
   smContainer: {
     paddingVertical: Spacing.xs,
     paddingHorizontal: Spacing.md,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
   },
   mdContainer: {
-    paddingVertical: Spacing.sm + 1,
+    paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.lg,
   },
   lgContainer: {
-    paddingVertical: Spacing.md + 1,
+    minHeight: 52,
+    paddingVertical: Spacing.md - 2,
     paddingHorizontal: Spacing.xl,
   },
 
   // Text base
   baseText: {
     ...Typography.bodyEmphasis,
+  },
+  primaryOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    // A tiny highlight so the gradient doesn't look flat on low-end screens.
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
   disabledText: {
     opacity: 0.7,
@@ -140,7 +175,7 @@ const styles = StyleSheet.create({
     color: Colors.text.inverse,
   },
   secondaryText: {
-    color: Colors.accent.primary,
+    color: Colors.text.primary,
   },
   ghostText: {
     color: Colors.accent.primary,

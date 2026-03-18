@@ -25,6 +25,9 @@ export const PillChip: React.FC<PillChipProps> = ({
     ]}
     onPress={onPress}
     activeOpacity={0.7}
+    accessibilityRole="button"
+    accessibilityLabel={label}
+    accessibilityState={{ selected }}
   >
     <Text style={[styles.label, selected ? styles.selectedLabel : styles.unselectedLabel]}>
       {label}
@@ -36,7 +39,7 @@ const styles = StyleSheet.create({
   chip: {
     paddingVertical: Spacing.xs,
     paddingHorizontal: Spacing.md,
-    borderRadius: Radius.md,
+    borderRadius: Radius.pill,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -44,10 +47,10 @@ const styles = StyleSheet.create({
   },
   selected: {
     backgroundColor: Colors.accent.soft,
-    borderColor: Colors.accent.primary,
+    borderColor: Colors.accent.dark,
   },
   unselected: {
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderColor: Colors.stroke.subtle,
   },
   label: {

@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   ActivityIndicator,
   StyleProp,
   ViewStyle,
@@ -12,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
 import { Typography } from '../theme/typography';
 import { Radius, Spacing } from '../theme/spacing';
+import { Button } from './Button';
 
 interface EmptyStateProps {
   icon?: keyof typeof Ionicons.glyphMap;
@@ -42,9 +42,15 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.message}>{message}</Text>
       {actionLabel && onAction && (
-        <TouchableOpacity style={styles.actionBtn} onPress={onAction}>
-          <Text style={styles.actionText}>{actionLabel}</Text>
-        </TouchableOpacity>
+        <Button
+          title={actionLabel}
+          onPress={onAction}
+          variant="secondary"
+          size="md"
+          fullWidth={false}
+          style={styles.actionBtn}
+          textStyle={styles.actionText}
+        />
       )}
     </View>
   </View>
@@ -73,9 +79,15 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
       <Text style={styles.title}>Something went wrong</Text>
       <Text style={styles.message}>{message}</Text>
       {onRetry && (
-        <TouchableOpacity style={styles.actionBtn} onPress={onRetry}>
-          <Text style={styles.actionText}>Try again</Text>
-        </TouchableOpacity>
+        <Button
+          title="Try again"
+          onPress={onRetry}
+          variant="secondary"
+          size="md"
+          fullWidth={false}
+          style={styles.actionBtn}
+          textStyle={styles.actionText}
+        />
       )}
     </View>
   </View>
@@ -96,7 +108,16 @@ export const LoadingState: React.FC<LoadingStateProps> = ({
   boxed = false,
   centered = true,
 }) => (
-  <View style={[styles.stateRoot, centered && styles.centeredState, boxed && styles.boxedContainer, style]}>
+  <View
+    style={[
+      styles.loadingRoot,
+      centered && styles.centeredState,
+      boxed && styles.boxedContainer,
+      style,
+    ]}
+    accessibilityRole="progressbar"
+    accessibilityLabel={message || 'Loading'}
+  >
     <View style={[styles.loadingContent, contentStyle]}>
       <ActivityIndicator size="small" color={Colors.accent.primary} />
       {message ? <Text style={styles.loadingMessage}>{message}</Text> : null}
@@ -107,17 +128,21 @@ export const LoadingState: React.FC<LoadingStateProps> = ({
 const styles = StyleSheet.create({
   stateRoot: {
     minHeight: 120,
-    width: '100%',
+    alignSelf: 'stretch',
+  },
+  loadingRoot: {
+    minHeight: 0,
+    alignSelf: 'stretch',
   },
   centeredState: {
     alignItems: 'center',
     justifyContent: 'center',
   },
   boxedContainer: {
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderRadius: Radius.xl,
     borderWidth: 1,
-    borderColor: Colors.stroke.subtle,
+    borderColor: Colors.stroke.soft,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.xl,
   },
@@ -129,7 +154,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: Radius.lg,
-    backgroundColor: Colors.accent.soft,
+    backgroundColor: Colors.bg.tertiary,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.lg,
@@ -151,16 +176,11 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     marginTop: Spacing.lg,
-    paddingVertical: Spacing.xs + 2,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.bg.tertiary,
-    borderWidth: 1,
-    borderColor: Colors.stroke.subtle,
+    alignSelf: 'center',
   },
   actionText: {
     ...Typography.bodyEmphasis,
-    color: Colors.accent.primary,
+    color: Colors.text.primary,
   },
   loadingContent: {
     alignItems: 'center',
