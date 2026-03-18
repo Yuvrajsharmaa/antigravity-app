@@ -22,7 +22,7 @@ export const WeeklyRhythmGrid: React.FC<{ days: WeeklyRhythmDay[] }> = ({ days }
     const iconColor = done ? Colors.text.inverse : 'transparent';
     return (
       <View style={cellStyle}>
-        <Ionicons name="checkmark" size={14} color={iconColor} />
+        <Ionicons name="checkmark" size={12} color={iconColor} />
       </View>
     );
   };
@@ -77,6 +77,8 @@ const styles = StyleSheet.create({
     width: LABEL_COL,
     ...Typography.micro,
     color: Colors.text.tertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
   dayLabel: {
     flex: 1,
@@ -91,11 +93,11 @@ const styles = StyleSheet.create({
   cell: {
     width: '100%',
     aspectRatio: 1,
-    borderRadius: Radius.md,
+    borderRadius: Radius.sm,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    maxWidth: 44,
+    maxWidth: 36,
   },
   cellIdle: {
     backgroundColor: Colors.bg.secondary,

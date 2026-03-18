@@ -16,6 +16,7 @@ export const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const tabBarHeight = useTabSafeBottomPadding(0);
   const footerBottomPadding = tabBarHeight + Spacing.md;
+  const [footerHeight, setFooterHeight] = React.useState(0);
   const {
     profile,
     user,
@@ -253,7 +254,7 @@ export const ProfileScreen: React.FC = () => {
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: footerBottomPadding + Spacing.xxl }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: footerHeight + footerBottomPadding + Spacing.lg }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -380,7 +381,13 @@ export const ProfileScreen: React.FC = () => {
 
       </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: footerBottomPadding }]}>
+      <View
+        style={[styles.footer, { paddingBottom: footerBottomPadding }]}
+        onLayout={(e) => {
+          const next = Math.round(e.nativeEvent.layout.height);
+          setFooterHeight((prev) => (prev === next ? prev : next));
+        }}
+      >
         <Button
           title="Sign out"
           onPress={handleSignOut}
@@ -412,7 +419,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: Spacing.xxxxl + Spacing.xl,
+    paddingBottom: Spacing.lg,
   },
   screenTitle: {
     ...Typography.title1,
