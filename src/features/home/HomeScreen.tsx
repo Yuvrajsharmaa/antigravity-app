@@ -20,6 +20,7 @@ import { Colors, Radius, Spacing, Typography } from '../../core/theme';
 import {
   getCarePersonalityState,
 } from '../../core/utils/careBuddy';
+import { formatMinutesShort, getJoinWindowState } from '../../core/utils/date';
 import { getRoleModeContract } from '../../core/utils/roleAccess';
 import { supabase } from '../../services/supabase';
 import { MentalHealthDashboard } from './components/MentalHealthDashboard';
@@ -259,6 +260,34 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     return <TherapistDashboardScreen />;
   }
 
+  const nextGoal = journey?.goals.find((goal) => !goal.completed) || null;
+  const nextGoalHelper = nextGoal?.helper || 'Keep the momentum going.';
+  const continueCtaLabel = nextGoal
+    ? nextGoal.key === 'check_in'
+      ? 'Start check-in'
+      : nextGoal.key === 'journal'
+        ? 'Open journal'
+        : 'Open messages'
+    : 'Review today';
+
+  const nextSessionJoinWindow = nextSession?.scheduled_start_at && nextSession?.scheduled_end_at
+    ? getJoinWindowState(nextSession.scheduled_start_at, nextSession.scheduled_end_at)
+    : null;
+  const nextSessionJoinable =
+    Boolean(nextSession) &&
+    nextSession.session_type === 'video' &&
+    nextSession.booking_status === 'confirmed' &&
+    Boolean(nextSession.id) &&
+    Boolean(nextSessionJoinWindow?.isOpen);
+  const nextSessionJoinHint = Boolean(nextSession) &&
+    nextSession.session_type === 'video' &&
+    nextSession.booking_status === 'confirmed' &&
+    Boolean(nextSession.id) &&
+    !nextSessionJoinable &&
+    nextSessionJoinWindow?.minutesUntilOpen
+    ? `Join opens in ${formatMinutesShort(nextSessionJoinWindow.minutesUntilOpen)}`
+    : null;
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.header}>
@@ -309,6 +338,7 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                   </View>
                 ) : null}
               </View>
+              <Text style={styles.nextBestReason}>{nextGoalHelper}</Text>
               <View style={styles.weeklyProgressMeta}>
                 <Text style={styles.weeklyProgressText}>
                   {`${weeklyCompletionCount}/7 days with activity`}
@@ -330,20 +360,10 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               </View>
               <View style={styles.nextBestActions}>
                 <Button
-                  title="Continue"
+                  title={continueCtaLabel}
                   onPress={handleNextJourneyAction}
                   variant="primary"
                   size="md"
-                  fullWidth={false}
-                  style={{ flex: 1 }}
-                />
-                <Button
-                  title="Matches"
-                  onPress={openMatchFlow}
-                  variant="secondary"
-                  size="md"
-                  fullWidth={false}
-                  style={{ flex: 1 }}
                 />
               </View>
             </Card>
@@ -424,20 +444,25 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                 <Button
                   title="Session prep"
                   onPress={() => navigation.navigate('SessionPrep', { session: nextSession })}
-                  variant="secondary"
+                  variant={nextSessionJoinable ? 'secondary' : 'primary'}
                   size="md"
                   fullWidth={false}
                   style={{ flex: 1 }}
                 />
-                <Button
-                  title="Join"
-                  onPress={() => navigation.navigate('VideoCall', { session: nextSession })}
-                  variant="primary"
-                  size="md"
-                  fullWidth={false}
-                  style={{ flex: 1 }}
-                />
+                {nextSessionJoinable && (
+                  <Button
+                    title="Join"
+                    onPress={() => navigation.navigate('VideoCall', { session: nextSession })}
+                    variant="primary"
+                    size="md"
+                    fullWidth={false}
+                    style={{ flex: 1 }}
+                  />
+                )}
               </View>
+              {nextSessionJoinHint ? (
+                <Text style={styles.nextSessionHint}>{nextSessionJoinHint}</Text>
+              ) : null}
             </Card>
           ) : null}
 
@@ -540,6 +565,11 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     color: Colors.text.secondary,
     marginTop: 1,
+  },
+  nextBestReason: {
+    ...Typography.body,
+    color: Colors.text.secondary,
+    lineHeight: 20,
   },
   nextBestBtn: {
     flex: 1,
@@ -868,6 +898,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.sm,
     marginTop: Spacing.md,
+  },
+  nextSessionHint: {
+    ...Typography.caption,
+    color: Colors.text.tertiary,
+    marginTop: Spacing.xs,
   },
   nextSessionActionBtn: {
     flex: 1,

@@ -12,6 +12,7 @@ import { Avatar, Button, Card, CoveModal, ErrorState } from '../../core/componen
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../core/context/AuthContext';
 import { completeSessionAndBooking } from '../../core/services/careFlowService';
+import { formatMinutesShort, getJoinWindowState } from '../../core/utils/date';
 import { asDependencyState, dependenciesReady, describeBlockingDependency } from '../../core/utils/flowDependencies';
 import { VideoCallRouteSession } from '../../navigation/types';
 import { CoveModalAction, CoveModalVariant } from '../../core/models/types';
@@ -154,6 +155,18 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
   };
 
   const startCall = async () => {
+    if (sessionState?.scheduled_start_at && sessionState?.scheduled_end_at) {
+      const joinWindow = getJoinWindowState(sessionState.scheduled_start_at, sessionState.scheduled_end_at);
+      if (!joinWindow.isOpen) {
+        const isEarly = Boolean(joinWindow.minutesUntilOpen);
+        const message = isEarly
+          ? `Join opens in ${formatMinutesShort(joinWindow.minutesUntilOpen || 0)}.`
+          : 'This session is no longer joinable.';
+        showModal('info', isEarly ? 'Join window not open' : 'Session closed', message);
+        return;
+      }
+    }
+
     const dependencies = [
       asDependencyState('session_id', 'Session room', Boolean(sessionState?.id), 'Ask therapist to confirm booking first.'),
       asDependencyState('booking_id', 'Booking details', Boolean(sessionState?.booking_id), 'Refresh sessions and try again.'),

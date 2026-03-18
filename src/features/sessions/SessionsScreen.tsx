@@ -15,6 +15,7 @@ import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { confirmBookingAndEnsureSession } from '../../core/services/careFlowService';
+import { formatMinutesShort, getJoinWindowState } from '../../core/utils/date';
 import { asDependencyState, describeBlockingDependency, dependenciesReady } from '../../core/utils/flowDependencies';
 import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
 import { CoveModalAction, CoveModalVariant } from '../../core/models/types';
@@ -213,7 +214,8 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
     if (item.booking_status !== 'confirmed') return false;
     if (!item.session_id) return false;
     if (item.session_status && ['completed', 'cancelled'].includes(item.session_status)) return false;
-    return true;
+    const window = getJoinWindowState(item.scheduled_start_at, item.scheduled_end_at);
+    return window.isOpen;
   };
 
   const confirmBooking = async (item: SessionItem) => {
@@ -293,7 +295,18 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
 
   const renderSession = ({ item }: { item: SessionItem }) => {
     const sc = getStatusConfig(item);
-    const joinable = canJoin(item);
+    const baseJoinable =
+      item.session_type === 'video' &&
+      item.booking_status === 'confirmed' &&
+      Boolean(item.session_id) &&
+      !(item.session_status && ['completed', 'cancelled'].includes(item.session_status));
+    const joinWindow = baseJoinable
+      ? getJoinWindowState(item.scheduled_start_at, item.scheduled_end_at)
+      : null;
+    const joinable = baseJoinable && Boolean(joinWindow?.isOpen);
+    const joinHint = baseJoinable && !joinable && joinWindow?.minutesUntilOpen
+      ? `Join opens in ${formatMinutesShort(joinWindow.minutesUntilOpen)}`
+      : null;
     const showConfirm = (isTherapistMode || isDevAdmin) && item.booking_status === 'pending_payment';
     const showPrep =
       tab === 'upcoming' &&
@@ -326,34 +339,6 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
 
         {(showPrep || joinable) && (
           <View style={styles.sessionActionsRow}>
-            {showPrep && (
-              <Button
-                title="Session prep"
-                variant="secondary"
-                size="md"
-                fullWidth={false}
-                style={{ flex: 1 }}
-                icon={<Ionicons name="sparkles-outline" size={16} color={Colors.text.primary} />}
-                onPress={() =>
-                  navigation.navigate('SessionPrep', {
-                    session: {
-                      id: item.session_id,
-                      booking_id: item.booking_id,
-                      scheduled_start_at: item.scheduled_start_at,
-                      scheduled_end_at: item.scheduled_end_at,
-                      participant_id: item.participant_id,
-                      participant_name: item.participant_name,
-                      participant_avatar: item.participant_avatar,
-                      status: item.session_status || 'scheduled',
-                      video_call_id: item.video_call_id,
-                      booking_status: item.booking_status,
-                      session_type: item.session_type,
-                    },
-                  })
-                }
-              />
-            )}
-
             {joinable && (
               <Button
                 title="Join session"
@@ -381,6 +366,46 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
                 }
               />
             )}
+
+            {showPrep && (
+              <Button
+                title="Session prep"
+                variant={joinable ? 'secondary' : 'primary'}
+                size="md"
+                fullWidth={false}
+                style={{ flex: 1 }}
+                icon={
+                  <Ionicons
+                    name="sparkles-outline"
+                    size={16}
+                    color={joinable ? Colors.text.primary : Colors.text.inverse}
+                  />
+                }
+                onPress={() =>
+                  navigation.navigate('SessionPrep', {
+                    session: {
+                      id: item.session_id,
+                      booking_id: item.booking_id,
+                      scheduled_start_at: item.scheduled_start_at,
+                      scheduled_end_at: item.scheduled_end_at,
+                      participant_id: item.participant_id,
+                      participant_name: item.participant_name,
+                      participant_avatar: item.participant_avatar,
+                      status: item.session_status || 'scheduled',
+                      video_call_id: item.video_call_id,
+                      booking_status: item.booking_status,
+                      session_type: item.session_type,
+                    },
+                  })
+                }
+              />
+            )}
+          </View>
+        )}
+
+        {joinHint && (
+          <View style={styles.helperRow}>
+            <Text style={styles.helperText}>{joinHint}</Text>
           </View>
         )}
 
