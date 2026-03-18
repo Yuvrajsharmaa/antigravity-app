@@ -26,7 +26,7 @@ interface DashboardClient {
   avatar: string | null;
   alertMsg: string;
   riskLevel: RiskLevel;
-  hasAutoNudge: boolean;
+  hasRecentNudge: boolean;
   lastNudgeAt: string | null;
   rhythmDays: number;
   reasonChips: string[];
@@ -199,7 +199,8 @@ export const TherapistDashboardScreen: React.FC = () => {
         const clientId = profileRow?.id;
         const clientMetrics = clientId ? metricsByUser[clientId] || [] : [];
         const risk = assessCareRisk(clientMetrics.slice(0, 5));
-        const hasAutoNudge = clientId ? Boolean(latestNudgeByUser[clientId]) : false;
+        const lastNudgeAt = clientId ? latestNudgeByUser[clientId] || null : null;
+        const hasRecentNudge = Boolean(lastNudgeAt) && (Date.now() - new Date(lastNudgeAt as string).getTime() < 24 * 60 * 60 * 1000);
         const latestMetric = clientMetrics[0];
         const rhythmDays = computeRhythmDays(clientMetrics.slice(0, 21));
         const reasonChips: string[] = [];
@@ -230,8 +231,8 @@ export const TherapistDashboardScreen: React.FC = () => {
           avatar: profileRow?.avatar_url || null,
           alertMsg,
           riskLevel: ready ? risk.level : 'stable',
-          hasAutoNudge,
-          lastNudgeAt: clientId ? latestNudgeByUser[clientId] || null : null,
+          hasRecentNudge,
+          lastNudgeAt,
           rhythmDays,
           reasonChips: reasonChips.slice(0, 3),
           openingPrompt: openingPromptForRisk(ready ? risk.level : 'stable'),
@@ -242,9 +243,10 @@ export const TherapistDashboardScreen: React.FC = () => {
         const riskDiff = riskPriority(b.riskLevel) - riskPriority(a.riskLevel);
         if (riskDiff !== 0) return riskDiff;
 
+        // Prefer clients who haven't been nudged recently (or ever) so actions are less redundant.
         const nudgeTimeA = a.lastNudgeAt ? new Date(a.lastNudgeAt).getTime() : 0;
         const nudgeTimeB = b.lastNudgeAt ? new Date(b.lastNudgeAt).getTime() : 0;
-        return nudgeTimeB - nudgeTimeA;
+        return nudgeTimeA - nudgeTimeB;
       });
 
       const nowIso = new Date().toISOString();
@@ -537,7 +539,7 @@ export const TherapistDashboardScreen: React.FC = () => {
         </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Needs Attention</Text>
+          <Text style={styles.sectionTitle}>Attention queue</Text>
           <TouchableOpacity onPress={goToSessions}>
             <Text style={styles.sectionAction}>View all</Text>
           </TouchableOpacity>
@@ -586,28 +588,53 @@ export const TherapistDashboardScreen: React.FC = () => {
                     <Ionicons name="close" size={18} color={Colors.text.tertiary} />
                   </TouchableOpacity>
                 </View>
-                {client.hasAutoNudge ? (
+                {client.hasRecentNudge ? (
                   <View style={styles.nudgeFlag}>
-                    <Text style={styles.nudgeFlagText}>Nudge sent recently</Text>
+                    <Text style={styles.nudgeFlagText}>Check-in sent (last 24h)</Text>
                   </View>
                 ) : null}
                 <View style={styles.actionButtons}>
-                  <Button
-                    title="Open chat"
-                    variant="secondary"
-                    fullWidth={false}
-                    style={{ flex: 1 }}
-                    icon={<Ionicons name="chatbubble-ellipses-outline" size={18} color={Colors.text.primary} />}
-                    onPress={() => openChatForClient(client)}
-                  />
-                  <Button
-                    title="Send check-in"
-                    variant="primary"
-                    fullWidth={false}
-                    style={{ flex: 1 }}
-                    icon={<Ionicons name="paper-plane-outline" size={16} color={Colors.text.inverse} />}
-                    onPress={() => handleSendNudge(client.name, client.conversationId, client.alertMsg)}
-                  />
+                  {client.riskLevel !== 'stable' ? (
+                    <>
+                      <Button
+                        title="Open chat"
+                        variant="primary"
+                        fullWidth={false}
+                        style={{ flex: 1 }}
+                        icon={<Ionicons name="chatbubble-ellipses-outline" size={18} color={Colors.text.inverse} />}
+                        onPress={() => openChatForClient(client)}
+                      />
+                      <Button
+                        title={client.hasRecentNudge ? 'Check-in sent' : 'Send check-in'}
+                        variant="secondary"
+                        disabled={client.hasRecentNudge}
+                        fullWidth={false}
+                        style={{ flex: 1 }}
+                        icon={<Ionicons name="paper-plane-outline" size={16} color={Colors.text.primary} />}
+                        onPress={() => handleSendNudge(client.name, client.conversationId, client.alertMsg)}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        title={client.hasRecentNudge ? 'Check-in sent' : 'Send check-in'}
+                        variant="primary"
+                        disabled={client.hasRecentNudge}
+                        fullWidth={false}
+                        style={{ flex: 1 }}
+                        icon={<Ionicons name="paper-plane-outline" size={16} color={Colors.text.inverse} />}
+                        onPress={() => handleSendNudge(client.name, client.conversationId, client.alertMsg)}
+                      />
+                      <Button
+                        title="Open chat"
+                        variant="secondary"
+                        fullWidth={false}
+                        style={{ flex: 1 }}
+                        icon={<Ionicons name="chatbubble-ellipses-outline" size={18} color={Colors.text.primary} />}
+                        onPress={() => openChatForClient(client)}
+                      />
+                    </>
+                  )}
                 </View>
               </Card>
             ))}
