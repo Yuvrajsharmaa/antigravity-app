@@ -96,10 +96,10 @@ export const useCareJourney = (userId: string | null | undefined): CareJourneyRe
 
       const { data: journalEntries, error: journalError } = await supabase
         .from('journal_entries')
-        .select('id')
+        .select('created_at')
         .eq('user_id', userId)
-        .gte('created_at', today.toISOString())
-        .limit(1);
+        .gte('created_at', weekStart.toISOString())
+        .order('created_at', { ascending: false });
 
       if (journalError) throw journalError;
 
@@ -118,7 +118,9 @@ export const useCareJourney = (userId: string | null | undefined): CareJourneyRe
         const checkInKey = item.check_in_date ? String(item.check_in_date).slice(0, 10) : null;
         return checkInKey === todayKey;
       });
-      const hasJournalToday = Boolean(journalEntries?.length);
+      const journalDateKeys = (journalEntries || []).map((row: any) => toDateKey(new Date(row.created_at)));
+      const journalDaySet = new Set(journalDateKeys);
+      const hasJournalToday = journalDaySet.has(todayKey);
       const hasConnectToday = Boolean(messages && messages.length > 0);
 
       const dateKeys = metricRows
@@ -138,6 +140,11 @@ export const useCareJourney = (userId: string | null | undefined): CareJourneyRe
           isToday: markerKey === toDateKey(today),
         };
       });
+
+      const journalWeekMarkers = weekMarkers.map((marker) => ({
+        ...marker,
+        completed: journalDaySet.has(marker.dateKey),
+      }));
 
       const goals: CareJourneyState['goals'] = [
         {
@@ -172,6 +179,7 @@ export const useCareJourney = (userId: string | null | undefined): CareJourneyRe
           highestStreak,
           repairsAvailable,
           weekMarkers,
+          journalWeekMarkers,
         },
         goals,
         nextActionLabel: nextAction,

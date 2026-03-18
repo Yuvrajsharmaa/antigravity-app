@@ -55,11 +55,15 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
   const weeklyCalendar = useMemo(() => {
     if (journey?.rhythm.weekMarkers?.length) {
+      const journalMap = new Map(
+        (journey.rhythm.journalWeekMarkers || []).map((marker) => [marker.dateKey, marker.completed] as const),
+      );
       return journey.rhythm.weekMarkers.map((item) => ({
         dateKey: item.dateKey,
         label: item.dayLabel.slice(0, 1),
         completed: item.completed,
         isToday: item.isToday,
+        journalCompleted: journalMap.get(item.dateKey) || false,
       }));
     }
     const today = new Date();
@@ -72,14 +76,13 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         label: date.toLocaleDateString([], { weekday: 'short' }).slice(0, 1),
         completed: false,
         isToday: index === 6,
+        journalCompleted: false,
       };
     });
-  }, [journey?.rhythm.weekMarkers]);
+  }, [journey?.rhythm.journalWeekMarkers, journey?.rhythm.weekMarkers]);
 
-  const weeklyCompletionCount = useMemo(
-    () => weeklyCalendar.filter((day) => day.completed).length,
-    [weeklyCalendar],
-  );
+  const weeklyCareCount = useMemo(() => weeklyCalendar.filter((day) => day.completed).length, [weeklyCalendar]);
+  const weeklyJournalCount = useMemo(() => weeklyCalendar.filter((day) => day.journalCompleted).length, [weeklyCalendar]);
 
   const fetchNextSession = useCallback(async () => {
     if (!user?.id || effectiveTherapistMode) {
@@ -341,20 +344,29 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               <Text style={styles.nextBestReason}>{nextGoalHelper}</Text>
               <View style={styles.weeklyProgressMeta}>
                 <Text style={styles.weeklyProgressText}>
-                  {`${weeklyCompletionCount}/7 days with activity`}
+                  {`Care ${weeklyCareCount}/7 · Journal ${weeklyJournalCount}/7`}
                 </Text>
               </View>
               <View style={styles.weeklyStrip}>
                 {weeklyCalendar.map((day) => (
                   <View key={day.dateKey} style={styles.weeklyDay}>
                     <Text style={styles.weeklyDayLabel}>{day.label}</Text>
-                    <View
-                      style={[
-                        styles.weeklyDayDot,
-                        day.completed && styles.weeklyDayDotDone,
-                        day.isToday && styles.weeklyDayDotToday,
-                      ]}
-                    />
+                    <View style={styles.weeklyDotStack}>
+                      <View
+                        style={[
+                          styles.weeklyDayDot,
+                          day.completed && styles.weeklyDayDotDone,
+                          day.isToday && styles.weeklyDayDotToday,
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.weeklyDayDot,
+                          styles.weeklyDayDotJournal,
+                          day.journalCompleted && styles.weeklyDayDotJournalDone,
+                        ]}
+                      />
+                    </View>
                   </View>
                 ))}
               </View>
@@ -676,6 +688,10 @@ const styles = StyleSheet.create({
     gap: 5,
     flex: 1,
   },
+  weeklyDotStack: {
+    alignItems: 'center',
+    gap: 4,
+  },
   weeklyDayLabel: {
     ...Typography.micro,
     color: Colors.text.tertiary,
@@ -688,9 +704,20 @@ const styles = StyleSheet.create({
     borderColor: Colors.stroke.medium,
     backgroundColor: Colors.bg.secondary,
   },
+  weeklyDayDotJournal: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    borderColor: Colors.status.warning,
+    backgroundColor: Colors.bg.secondary,
+  },
   weeklyDayDotDone: {
     backgroundColor: Colors.accent.primary,
     borderColor: Colors.accent.primary,
+  },
+  weeklyDayDotJournalDone: {
+    backgroundColor: Colors.status.warning,
+    borderColor: Colors.status.warning,
   },
   weeklyDayDotToday: {
     borderColor: Colors.accent.dark,

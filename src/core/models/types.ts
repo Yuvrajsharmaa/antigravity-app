@@ -295,6 +295,7 @@ export interface CareRhythmState {
   highestStreak: number;
   repairsAvailable: number;
   weekMarkers: CareRhythmMarker[];
+  journalWeekMarkers?: CareRhythmMarker[];
 }
 
 export interface CareCalendarDay {

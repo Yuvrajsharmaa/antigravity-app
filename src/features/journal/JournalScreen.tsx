@@ -28,6 +28,7 @@ import {
 } from '../../core/components';
 import { Colors, Radius, Spacing, Typography } from '../../core/theme';
 import { useAuth } from '../../core/context/AuthContext';
+import { useCareCalendar } from '../../core/hooks/useCareCalendar';
 import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
 import { supabase } from '../../services/supabase';
 import { createJournalEntry, fetchJournalEntries } from '../../core/services/careFlowService';
@@ -77,6 +78,8 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
   const [todayMetricId, setTodayMetricId] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterType>('all');
   const [mode, setMode] = useState<JournalMode>('write');
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<JournalRow | null>(null);
   const [entryDraft, setEntryDraft] = useState('');
   const [entrySaving, setEntrySaving] = useState(false);
@@ -95,9 +98,35 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
   });
 
   const filteredEntries = useMemo(() => {
-    if (filter === 'all') return entries;
-    return entries.filter((entry) => entry.entry_type === filter);
-  }, [entries, filter]);
+    const base = filter === 'all'
+      ? entries
+      : entries.filter((entry) => entry.entry_type === filter);
+    if (!selectedDateKey) return base;
+    return base.filter((entry) => localDateKey(entry.created_at) === selectedDateKey);
+  }, [entries, filter, selectedDateKey]);
+
+  const { month: careMonth } = useCareCalendar(user?.id, calendarMonth);
+  const calendarCells = useMemo(() => {
+    if (!careMonth) return [];
+    const first = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+    // Monday-first offset.
+    const offset = (first.getDay() + 6) % 7;
+    const blanks = Array.from({ length: offset }).map((_, idx) => ({ kind: 'blank' as const, key: `blank-${idx}` }));
+    const todayKey = localDateKey();
+    const days = careMonth.days.map((day) => ({
+      kind: 'day' as const,
+      key: day.date,
+      dateKey: day.date,
+      dayNumber: Number.parseInt(day.date.slice(8, 10), 10),
+      hasJournal: day.hasJournal,
+      isToday: day.date === todayKey,
+      isSelected: selectedDateKey === day.date,
+    }));
+    return [...blanks, ...days];
+  }, [calendarMonth, careMonth, selectedDateKey]);
+
+  const goPrevMonth = () => setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  const goNextMonth = () => setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
 
   const loadJournal = useCallback(async () => {
     if (!user?.id) {
@@ -402,6 +431,64 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
         </>
       ) : (
         <>
+          <Card style={styles.calendarCard}>
+            <View style={styles.calendarHeader}>
+              <TouchableOpacity style={styles.calendarNavBtn} onPress={goPrevMonth} accessibilityRole="button">
+                <Ionicons name="chevron-back" size={18} color={Colors.text.primary} />
+              </TouchableOpacity>
+              <Text style={styles.calendarMonthLabel}>{careMonth?.monthLabel || 'Calendar'}</Text>
+              <TouchableOpacity style={styles.calendarNavBtn} onPress={goNextMonth} accessibilityRole="button">
+                <Ionicons name="chevron-forward" size={18} color={Colors.text.primary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.calendarWeekRow}>
+              {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((label) => (
+                <Text key={label} style={styles.calendarWeekLabel}>{label}</Text>
+              ))}
+            </View>
+
+            <View style={styles.calendarGrid}>
+              {calendarCells.map((cell) => {
+                if (cell.kind === 'blank') {
+                  return <View key={cell.key} style={styles.calendarBlank} />;
+                }
+                return (
+                  <TouchableOpacity
+                    key={cell.key}
+                    style={[
+                      styles.calendarCell,
+                      cell.isToday && styles.calendarCellToday,
+                      cell.isSelected && styles.calendarCellSelected,
+                    ]}
+                    onPress={() => setSelectedDateKey((prev) => (prev === cell.dateKey ? null : cell.dateKey))}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Select ${cell.dateKey}`}
+                  >
+                    <Text style={styles.calendarDayText}>{cell.dayNumber}</Text>
+                    {cell.hasJournal ? <View style={styles.calendarDot} /> : <View style={styles.calendarDotSpacer} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.calendarFooterRow}>
+              <View style={styles.calendarLegend}>
+                <View style={styles.calendarDotLegend} />
+                <Text style={styles.calendarFooterHint}>Journal entry</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.calendarClearBtn}
+                onPress={() => setSelectedDateKey(null)}
+                disabled={!selectedDateKey}
+              >
+                <Text style={[styles.calendarClearText, !selectedDateKey && styles.calendarClearTextDisabled]}>
+                  Clear day
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </Card>
+
           <View style={styles.filterRow}>
             {FILTER_OPTIONS.map((option) => (
               <PillChip
@@ -656,6 +743,115 @@ const styles = StyleSheet.create({
   historyJumpText: {
     ...Typography.bodyEmphasis,
     color: Colors.accent.primary,
+  },
+  calendarCard: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.md,
+    padding: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  calendarNavBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.bg.tertiary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calendarMonthLabel: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+  },
+  calendarWeekRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 2,
+  },
+  calendarWeekLabel: {
+    ...Typography.micro,
+    color: Colors.text.tertiary,
+    width: 34,
+    textAlign: 'center',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: Spacing.xs,
+  },
+  calendarBlank: {
+    width: 34,
+    height: 38,
+  },
+  calendarCell: {
+    width: 34,
+    height: 38,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.ui.glass,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  calendarCellToday: {
+    borderColor: Colors.accent.primary,
+  },
+  calendarCellSelected: {
+    backgroundColor: Colors.accent.soft,
+    borderColor: Colors.accent.primary,
+  },
+  calendarDayText: {
+    ...Typography.micro,
+    color: Colors.text.primary,
+  },
+  calendarDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.status.warning,
+  },
+  calendarDotSpacer: {
+    width: 6,
+    height: 6,
+  },
+  calendarFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  calendarLegend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  calendarDotLegend: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.status.warning,
+  },
+  calendarFooterHint: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
+  calendarClearBtn: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+  },
+  calendarClearText: {
+    ...Typography.captionEmphasis,
+    color: Colors.accent.primary,
+  },
+  calendarClearTextDisabled: {
+    color: Colors.text.tertiary,
   },
   filterRow: {
     flexDirection: 'row',
