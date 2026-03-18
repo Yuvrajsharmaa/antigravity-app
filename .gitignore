@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Vendor skills (kept local; bootstrap via scripts/bootstrap-anthropic-skills.sh)
+vendor/anthropic-skills/
