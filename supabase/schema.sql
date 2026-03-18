@@ -391,7 +391,7 @@ CREATE POLICY "therapist_applications_select_own" ON public.therapist_applicatio
 CREATE POLICY "therapist_applications_insert_own" ON public.therapist_applications FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "therapist_applications_update_own" ON public.therapist_applications FOR UPDATE
 USING (auth.uid() = user_id AND status IN ('pending', 'rejected'))
-WITH CHECK (auth.uid() = user_id);
+WITH CHECK (auth.uid() = user_id AND status IN ('pending', 'rejected'));
 CREATE POLICY "therapist_applications_admin_select" ON public.therapist_applications FOR SELECT USING (
   EXISTS (
     SELECT 1
