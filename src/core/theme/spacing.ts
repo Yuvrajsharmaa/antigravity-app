@@ -13,24 +13,25 @@ export const Spacing = {
 export const Radius = {
   sm: 10,
   md: 14,
-  lg: 18,
-  xl: 22,
+  lg: 16,
+  xl: 20,
+  xxl: 28,
   pill: 999,
 } as const;
 
 export const Shadow = {
   card: {
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.06,
-    shadowRadius: 14,
-    elevation: 4,
+    shadowRadius: 10,
+    elevation: 2,
   },
   subtle: {
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.03,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowRadius: 5,
+    elevation: 1,
   },
 } as const;

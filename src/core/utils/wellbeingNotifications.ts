@@ -105,7 +105,7 @@ export const initializeNotifications = async () => {
     name: 'Wellbeing reminders',
     importance: Notifications.AndroidImportance.DEFAULT,
     vibrationPattern: [0, 150, 100, 150],
-    lightColor: '#6B8E73',
+    lightColor: '#6F8F7D',
   });
 
   notificationsInitialized = true;
@@ -252,7 +252,7 @@ export const scheduleAdaptiveWellbeingReminders = async (userId: string) => {
     .slice(0, 2);
 
   const ids: string[] = [];
-  const title = prefs.care_buddy_enabled ? 'Care Buddy check-in' : 'Care Space check-in';
+  const title = prefs.care_buddy_enabled ? 'Cove check-in' : 'Care Space check-in';
   const body = prefs.care_buddy_enabled
     ? careBuddyLine(prefs.engagement_mode === 'gentle' ? 'reassure' : 'coach')
     : 'A gentle reminder to log your mood and keep your CareScore in sync.';
@@ -277,7 +277,7 @@ export const triggerSupportiveNudgeNotification = async () => {
   if (!hasPermission) return;
 
   await scheduleReminder(
-    'Care Buddy wellbeing nudge',
+    'Cove wellbeing nudge',
     careBuddyLine('reassure'),
     new Date(Date.now() + 2000),
   );

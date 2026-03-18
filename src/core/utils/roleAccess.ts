@@ -7,11 +7,13 @@ export const getRoleModeContract = (
   const resolvedRole: AppRole = role || 'user';
   const canUseTherapistMode = resolvedRole === 'therapist' || resolvedRole === 'admin';
   const effectiveTherapistMode = canUseTherapistMode && isTherapistModeRequested;
+  const isAdminClientPreview = resolvedRole === 'admin' && !effectiveTherapistMode;
 
   return {
     role: resolvedRole,
     canUseTherapistMode,
-    canAccessMatchFlow: !effectiveTherapistMode,
+    // Match is client flow. Admins can preview it when not in therapist mode.
+    canAccessMatchFlow: (resolvedRole === 'user' || isAdminClientPreview) && !effectiveTherapistMode,
+    isAdminClientPreview,
   };
 };
-

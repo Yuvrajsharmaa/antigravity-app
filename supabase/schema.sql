@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS public.user_preferences (
   engagement_mode TEXT DEFAULT 'balanced' CHECK (engagement_mode IN ('gentle', 'balanced', 'high')),
   nudge_snooze_until TIMESTAMPTZ,
   care_buddy_enabled BOOLEAN DEFAULT TRUE,
+  walkthrough_completed BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -136,13 +137,21 @@ CREATE TABLE IF NOT EXISTS public.crisis_flags (
 CREATE TABLE IF NOT EXISTS public.client_metrics (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES public.profiles(id) NOT NULL,
+  check_in_date DATE NOT NULL DEFAULT (timezone('utc', now()))::date,
   mood TEXT NOT NULL,
   stress_level INT NOT NULL,
   sleep_hours NUMERIC NOT NULL,
+  energy_level INT,
+  connectedness_level INT,
+  coping_helpfulness INT,
   journal_entry TEXT,
   care_score_snapshot INT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT now()
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_client_metrics_user_checkin_date
+  ON public.client_metrics (user_id, check_in_date);
 
 -- 11. care_nudge_events
 CREATE TABLE IF NOT EXISTS public.care_nudge_events (
@@ -155,6 +164,133 @@ CREATE TABLE IF NOT EXISTS public.care_nudge_events (
   message_preview TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- 12. therapist_applications
+CREATE TABLE IF NOT EXISTS public.therapist_applications (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE UNIQUE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  years_experience INT,
+  specialties TEXT[] DEFAULT '{}',
+  languages TEXT[] DEFAULT '{English}',
+  communication_style TEXT,
+  headline TEXT,
+  rejection_reason TEXT,
+  reviewed_by UUID REFERENCES public.profiles(id),
+  reviewed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 13. journal_entries
+CREATE TABLE IF NOT EXISTS public.journal_entries (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  entry_type TEXT NOT NULL CHECK (entry_type IN ('daily_reflection', 'post_session_reflection')),
+  title TEXT,
+  body TEXT NOT NULL,
+  mood TEXT,
+  stress_level INT,
+  sleep_hours NUMERIC,
+  care_score_snapshot INT,
+  metric_id UUID REFERENCES public.client_metrics(id) ON DELETE SET NULL,
+  session_id UUID REFERENCES public.sessions(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 14. client_match_profile
+CREATE TABLE IF NOT EXISTS public.client_match_profile (
+  user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+  concern_tags TEXT[] NOT NULL DEFAULT '{}',
+  goal_tags TEXT[] NOT NULL DEFAULT '{}',
+  style_preference TEXT,
+  session_preference TEXT NOT NULL DEFAULT 'both',
+  language_preference TEXT,
+  availability_windows JSONB NOT NULL DEFAULT '[]'::jsonb,
+  gender_preference TEXT DEFAULT 'no_preference',
+  identity_preferences JSONB NOT NULL DEFAULT '{}'::jsonb,
+  modality_preferences JSONB NOT NULL DEFAULT '{}'::jsonb,
+  urgency_level INT DEFAULT 2,
+  first_session_sla_hours INT DEFAULT 72,
+  budget_min_inr INT,
+  budget_max_inr INT,
+  risk_flag BOOLEAN DEFAULT FALSE,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 15. therapist_match_profile
+CREATE TABLE IF NOT EXISTS public.therapist_match_profile (
+  therapist_id UUID PRIMARY KEY REFERENCES public.therapists(id) ON DELETE CASCADE,
+  treats_tags TEXT[] NOT NULL DEFAULT '{}',
+  not_fit_tags TEXT[] NOT NULL DEFAULT '{}',
+  modalities TEXT[] NOT NULL DEFAULT '{}',
+  style_tags TEXT[] NOT NULL DEFAULT '{}',
+  population_tags TEXT[] NOT NULL DEFAULT '{}',
+  session_modes TEXT[] NOT NULL DEFAULT '{video}',
+  languages TEXT[] NOT NULL DEFAULT '{English}',
+  intake_windows JSONB NOT NULL DEFAULT '[]'::jsonb,
+  new_client_capacity INT DEFAULT 5,
+  identity_tags JSONB NOT NULL DEFAULT '{}'::jsonb,
+  accepts_new_clients BOOLEAN DEFAULT TRUE,
+  standout_quote TEXT,
+  standout_prompt TEXT,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 16. match_events
+CREATE TABLE IF NOT EXISTS public.match_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  therapist_id UUID NOT NULL REFERENCES public.therapists(id) ON DELETE CASCADE,
+  match_score NUMERIC NOT NULL,
+  rank_position INT NOT NULL,
+  score_breakdown JSONB NOT NULL,
+  model_version TEXT NOT NULL DEFAULT 'v2',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 17. therapist_match_requests
+CREATE TABLE IF NOT EXISTS public.therapist_match_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  therapist_id UUID NOT NULL REFERENCES public.therapists(id) ON DELETE CASCADE,
+  intro_question TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'withdrawn')),
+  therapist_response_note TEXT,
+  therapist_responded_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_therapist_match_requests_user
+  ON public.therapist_match_requests (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_therapist_match_requests_therapist
+  ON public.therapist_match_requests (therapist_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_therapist_match_requests_pending_pair
+  ON public.therapist_match_requests (user_id, therapist_id)
+  WHERE status = 'pending';
+
+-- 18. client_therapist_links
+CREATE TABLE IF NOT EXISTS public.client_therapist_links (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  therapist_id UUID NOT NULL REFERENCES public.therapists(id) ON DELETE CASCADE,
+  state TEXT NOT NULL CHECK (state IN ('exploring', 'locked', 'switched')),
+  switch_reason TEXT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ended_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_client_therapist_links_user
+  ON public.client_therapist_links (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_client_therapist_links_therapist
+  ON public.client_therapist_links (therapist_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_client_therapist_links_active_lock
+  ON public.client_therapist_links (user_id)
+  WHERE state = 'locked' AND ended_at IS NULL;
 
 -- ============================================
 -- Enable Row Level Security
@@ -170,6 +306,13 @@ ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.crisis_flags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.client_metrics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.care_nudge_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.therapist_applications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.journal_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.client_match_profile ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.therapist_match_profile ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.match_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.therapist_match_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.client_therapist_links ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- RLS Policies
@@ -232,6 +375,7 @@ CREATE POLICY "crisis_insert_own" ON public.crisis_flags FOR INSERT WITH CHECK (
 -- Client metrics: insert/read own, therapist read
 CREATE POLICY "metrics_insert_own" ON public.client_metrics FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "metrics_select_own" ON public.client_metrics FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "metrics_update_own" ON public.client_metrics FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "metrics_select_therapist" ON public.client_metrics FOR SELECT USING (
   EXISTS (SELECT 1 FROM public.conversations c WHERE c.user_id = client_metrics.user_id AND c.therapist_id = auth.uid())
 );
@@ -241,6 +385,130 @@ CREATE POLICY "nudge_events_select_own" ON public.care_nudge_events FOR SELECT U
 CREATE POLICY "nudge_events_insert_own" ON public.care_nudge_events FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "nudge_events_select_therapist" ON public.care_nudge_events FOR SELECT USING (auth.uid() = therapist_id);
 CREATE POLICY "nudge_events_insert_therapist" ON public.care_nudge_events FOR INSERT WITH CHECK (auth.uid() = therapist_id);
+
+-- Therapist applications
+CREATE POLICY "therapist_applications_select_own" ON public.therapist_applications FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "therapist_applications_insert_own" ON public.therapist_applications FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "therapist_applications_update_own" ON public.therapist_applications FOR UPDATE
+USING (auth.uid() = user_id AND status IN ('pending', 'rejected'))
+WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "therapist_applications_admin_select" ON public.therapist_applications FOR SELECT USING (
+  EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = auth.uid()
+      AND p.role = 'admin'
+  )
+);
+CREATE POLICY "therapist_applications_admin_update" ON public.therapist_applications FOR UPDATE
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = auth.uid()
+      AND p.role = 'admin'
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = auth.uid()
+      AND p.role = 'admin'
+  )
+);
+
+-- Journal entries
+CREATE POLICY "journal_entries_select_own" ON public.journal_entries FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "journal_entries_insert_own" ON public.journal_entries FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "journal_entries_update_own" ON public.journal_entries FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "journal_entries_delete_own" ON public.journal_entries FOR DELETE USING (auth.uid() = user_id);
+CREATE POLICY "journal_entries_select_therapist" ON public.journal_entries FOR SELECT USING (
+  EXISTS (
+    SELECT 1
+    FROM public.conversations c
+    WHERE c.user_id = journal_entries.user_id
+      AND c.therapist_id = auth.uid()
+  )
+);
+
+-- Client match profile
+CREATE POLICY "client_match_profile_select_own" ON public.client_match_profile FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "client_match_profile_insert_own" ON public.client_match_profile FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "client_match_profile_update_own" ON public.client_match_profile FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Therapist match profile
+CREATE POLICY "therapist_match_profile_select_all" ON public.therapist_match_profile FOR SELECT USING (true);
+CREATE POLICY "therapist_match_profile_insert_own" ON public.therapist_match_profile FOR INSERT
+WITH CHECK (
+  auth.uid() = therapist_id
+  OR EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = auth.uid()
+      AND p.role = 'admin'
+  )
+);
+CREATE POLICY "therapist_match_profile_update_own" ON public.therapist_match_profile FOR UPDATE
+USING (
+  auth.uid() = therapist_id
+  OR EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = auth.uid()
+      AND p.role = 'admin'
+  )
+)
+WITH CHECK (
+  auth.uid() = therapist_id
+  OR EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = auth.uid()
+      AND p.role = 'admin'
+  )
+);
+
+-- Match events
+CREATE POLICY "match_events_select_own" ON public.match_events FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "match_events_insert_own" ON public.match_events FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "match_events_select_therapist" ON public.match_events FOR SELECT USING (auth.uid() = therapist_id);
+
+-- Therapist match requests
+CREATE POLICY "therapist_match_requests_select_client" ON public.therapist_match_requests FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "therapist_match_requests_insert_client" ON public.therapist_match_requests FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "therapist_match_requests_update_client" ON public.therapist_match_requests FOR UPDATE
+USING (auth.uid() = user_id)
+WITH CHECK (
+  auth.uid() = user_id
+  AND status IN ('pending', 'withdrawn')
+);
+CREATE POLICY "therapist_match_requests_select_therapist" ON public.therapist_match_requests FOR SELECT USING (auth.uid() = therapist_id);
+CREATE POLICY "therapist_match_requests_update_therapist" ON public.therapist_match_requests FOR UPDATE
+USING (
+  auth.uid() = therapist_id
+  OR EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = auth.uid()
+      AND p.role = 'admin'
+  )
+)
+WITH CHECK (
+  auth.uid() = therapist_id
+  OR EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = auth.uid()
+      AND p.role = 'admin'
+  )
+);
+
+-- Client therapist links
+CREATE POLICY "client_therapist_links_select_own" ON public.client_therapist_links FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "client_therapist_links_insert_own" ON public.client_therapist_links FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "client_therapist_links_update_own" ON public.client_therapist_links FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "client_therapist_links_select_therapist" ON public.client_therapist_links FOR SELECT USING (auth.uid() = therapist_id);
 
 -- Atomic booking confirmation RPC: lock slot + confirm booking + ensure session
 CREATE OR REPLACE FUNCTION public.confirm_booking_atomic(
@@ -325,6 +593,175 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.confirm_booking_atomic(UUID, UUID) TO authenticated;
 
+-- Therapist response to match request: accept/decline and lock on acceptance
+CREATE OR REPLACE FUNCTION public.respond_match_request(
+  p_request_id UUID,
+  p_status TEXT,
+  p_switch_reason TEXT DEFAULT NULL
+)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user_id UUID;
+  v_therapist_id UUID;
+  v_is_admin BOOLEAN;
+BEGIN
+  IF p_status NOT IN ('accepted', 'declined') THEN
+    RAISE EXCEPTION 'INVALID_STATUS';
+  END IF;
+
+  SELECT r.user_id, r.therapist_id
+  INTO v_user_id, v_therapist_id
+  FROM public.therapist_match_requests r
+  WHERE r.id = p_request_id
+    AND r.status = 'pending'
+  FOR UPDATE;
+
+  IF v_user_id IS NULL OR v_therapist_id IS NULL THEN
+    RAISE EXCEPTION 'REQUEST_NOT_FOUND_OR_CLOSED';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = auth.uid()
+      AND p.role = 'admin'
+  )
+  INTO v_is_admin;
+
+  IF auth.uid() <> v_therapist_id AND NOT v_is_admin THEN
+    RAISE EXCEPTION 'NOT_AUTHORIZED';
+  END IF;
+
+  UPDATE public.therapist_match_requests
+  SET status = p_status,
+      therapist_responded_at = now(),
+      updated_at = now()
+  WHERE id = p_request_id;
+
+  IF p_status = 'accepted' THEN
+    UPDATE public.client_therapist_links
+    SET state = 'switched',
+        switch_reason = COALESCE(p_switch_reason, 'Switched after therapist acceptance'),
+        ended_at = now(),
+        updated_at = now()
+    WHERE user_id = v_user_id
+      AND state = 'locked'
+      AND ended_at IS NULL;
+
+    INSERT INTO public.client_therapist_links (
+      user_id,
+      therapist_id,
+      state,
+      started_at,
+      updated_at
+    ) VALUES (
+      v_user_id,
+      v_therapist_id,
+      'locked',
+      now(),
+      now()
+    );
+
+    INSERT INTO public.conversations (
+      user_id,
+      therapist_id,
+      last_message_at
+    ) VALUES (
+      v_user_id,
+      v_therapist_id,
+      now()
+    )
+    ON CONFLICT (user_id, therapist_id)
+    DO UPDATE SET last_message_at = EXCLUDED.last_message_at;
+  END IF;
+
+  RETURN p_request_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.respond_match_request(UUID, TEXT, TEXT) TO authenticated;
+
+-- ============================================
+-- Storage: Avatar Bucket + Policies
+-- ============================================
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'avatars',
+  'avatars',
+  true,
+  5242880,
+  ARRAY['image/jpeg', 'image/png', 'image/webp']
+)
+ON CONFLICT (id) DO NOTHING;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'storage'
+      AND tablename = 'objects'
+      AND policyname = 'avatar_objects_insert_own'
+  ) THEN
+    CREATE POLICY "avatar_objects_insert_own" ON storage.objects
+      FOR INSERT TO authenticated
+      WITH CHECK (
+        bucket_id = 'avatars'
+        AND auth.uid()::text = (storage.foldername(name))[1]
+      );
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'storage'
+      AND tablename = 'objects'
+      AND policyname = 'avatar_objects_update_own'
+  ) THEN
+    CREATE POLICY "avatar_objects_update_own" ON storage.objects
+      FOR UPDATE TO authenticated
+      USING (
+        bucket_id = 'avatars'
+        AND auth.uid()::text = (storage.foldername(name))[1]
+      )
+      WITH CHECK (
+        bucket_id = 'avatars'
+        AND auth.uid()::text = (storage.foldername(name))[1]
+      );
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'storage'
+      AND tablename = 'objects'
+      AND policyname = 'avatar_objects_delete_own'
+  ) THEN
+    CREATE POLICY "avatar_objects_delete_own" ON storage.objects
+      FOR DELETE TO authenticated
+      USING (
+        bucket_id = 'avatars'
+        AND auth.uid()::text = (storage.foldername(name))[1]
+      );
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'storage'
+      AND tablename = 'objects'
+      AND policyname = 'avatar_objects_select_public'
+  ) THEN
+    CREATE POLICY "avatar_objects_select_public" ON storage.objects
+      FOR SELECT TO public
+      USING (bucket_id = 'avatars');
+  END IF;
+END $$;
+
 -- ============================================
 -- Enable Realtime on messages
 -- ============================================
@@ -332,6 +769,13 @@ GRANT EXECUTE ON FUNCTION public.confirm_booking_atomic(UUID, UUID) TO authentic
 ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.client_metrics;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.care_nudge_events;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.therapist_applications;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.journal_entries;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.client_match_profile;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.therapist_match_profile;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.match_events;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.therapist_match_requests;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.client_therapist_links;
 
 -- ============================================
 -- Seed Data: Demo Therapists

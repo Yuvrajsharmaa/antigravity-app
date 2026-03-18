@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Switch, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, Switch, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Typography, Spacing } from '../../core/theme';
@@ -9,6 +9,7 @@ import { supabase } from '../../services/supabase';
 import { cancelWellbeingReminders, scheduleAdaptiveWellbeingReminders } from '../../core/utils/wellbeingNotifications';
 import { careBuddyLine } from '../../core/utils/careBuddy';
 import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
+import { navigateBackSafe } from '../../navigation/safeBack';
 
 const STORAGE_KEY = 'care_space_notification_preferences';
 const REMINDER_TIMES = ['09:00:00', '14:00:00', '19:00:00'];
@@ -42,6 +43,7 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
   const [engagementMode, setEngagementMode] = useState<'gentle' | 'balanced' | 'high'>('balanced');
   const [nudgeSnoozeUntil, setNudgeSnoozeUntil] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     const loadPrefs = async () => {
@@ -129,10 +131,12 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
     if (error) {
       const message = error.message || 'Could not save notification preferences.';
       setSaveError(message);
-      Alert.alert('Save failed', message);
+      setSaveSuccess(null);
       return false;
     }
     setSaveError(null);
+    setSaveSuccess('Preferences saved');
+    setTimeout(() => setSaveSuccess(null), 1800);
 
     if (mergedPrefs.wellbeingReminders) {
       await scheduleAdaptiveWellbeingReminders(user.id);
@@ -179,13 +183,14 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Button title="Back" variant="ghost" fullWidth={false} onPress={() => navigation.goBack()} />
+          <Button title="Back" variant="ghost" fullWidth={false} onPress={() => navigateBackSafe(navigation, 'ProfileMain')} />
           <Text style={styles.title}>Notifications</Text>
           <View style={{ width: 56 }} />
         </View>
 
         <Card style={styles.card}>
           {saveError ? <Text style={styles.saveErrorText}>{saveError}</Text> : null}
+          {saveSuccess ? <Text style={styles.saveSuccessText}>{saveSuccess}</Text> : null}
           <ToggleRow
             title="Session reminders"
             subtitle="Get reminded before upcoming sessions"
@@ -204,7 +209,7 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
 
           <ToggleRow
             title="Wellbeing nudges"
-            subtitle="Gentle check-in reminders for mood and CareScore"
+            subtitle="Gentle check-in reminders for mood and wellbeing"
             value={prefs.wellbeingReminders}
             onChange={(val) => update('wellbeingReminders', val)}
             disabled={!loaded}
@@ -216,7 +221,7 @@ export const NotificationsScreen: React.FC<{ navigation: any }> = ({ navigation 
           <Card style={styles.preferencesCard}>
             <Text style={styles.buddyHint}>{careBuddyLine('reassure')}</Text>
             <ToggleRow
-              title="Care Buddy personality"
+              title="Cove personality"
               subtitle="Friendly coaching copy in reminders and care prompts"
               value={careBuddyEnabled}
               onChange={async (val) => {
@@ -339,6 +344,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.bg.primary,
   },
   scrollContent: {
+    flexGrow: 1,
     paddingBottom: Spacing.xxxxl,
   },
   header: {
@@ -361,6 +367,12 @@ const styles = StyleSheet.create({
   saveErrorText: {
     ...Typography.caption,
     color: Colors.status.danger,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
+  },
+  saveSuccessText: {
+    ...Typography.caption,
+    color: Colors.status.success,
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
   },

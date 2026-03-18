@@ -1,15 +1,23 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../../services/supabase';
-import { Profile } from '../models/types';
+import { Profile, SignupRoleIntent, TherapistApplication } from '../models/types';
 import { scheduleAdaptiveWellbeingReminders } from '../utils/wellbeingNotifications';
+import {
+  fetchTherapistApplicationByUser,
+  upsertTherapistApplication,
+} from '../services/careFlowService';
 
 interface AuthContextType {
   session: Session | null;
   user: User | null;
   profile: Profile | null;
   isLoading: boolean;
-  signUp: (email: string, password: string) => Promise<{ error: string | null }>;
+  signUp: (
+    email: string,
+    password: string,
+    roleIntent?: SignupRoleIntent,
+  ) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -17,6 +25,9 @@ interface AuthContextType {
   canUseTherapistMode: boolean;
   toggleTherapistMode: () => void;
   isDevAdmin: boolean;
+  therapistApplication: TherapistApplication | null;
+  isTherapistApplicant: boolean;
+  signupRoleIntent: SignupRoleIntent;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -30,8 +41,10 @@ const isDevAdminEmail = (email?: string | null) => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [therapistApplication, setTherapistApplication] = useState<TherapistApplication | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isTherapistMode, setIsTherapistMode] = useState(false);
+  const activeUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Get initial session
@@ -40,6 +53,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (session?.user) {
         fetchProfile(session.user.id);
       } else {
+        setTherapistApplication(null);
         setIsLoading(false);
       }
     });
@@ -51,6 +65,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         fetchProfile(session.user.id);
       } else {
         setProfile(null);
+        setTherapistApplication(null);
+        setIsTherapistMode(false);
         setIsLoading(false);
       }
     });
@@ -62,6 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const currentUser = session?.user || (await supabase.auth.getUser()).data.user;
       const shouldPromoteDevAdmin = isDevAdminEmail(currentUser?.email);
+      const roleIntent = (currentUser?.user_metadata?.role_intent as SignupRoleIntent | undefined) || 'client';
 
       const { data, error } = await supabase
         .from('profiles')
@@ -90,6 +107,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (!createError && created) {
           setProfile(created as Profile);
+          if (!shouldPromoteDevAdmin && roleIntent === 'therapist') {
+            await upsertTherapistApplication({ userId });
+          }
         }
       } else if (data) {
         const currentProfile = data as Profile;
@@ -111,6 +131,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setProfile(currentProfile);
         }
       }
+
+      try {
+        let application = await fetchTherapistApplicationByUser(userId);
+        if (!application && roleIntent === 'therapist' && !shouldPromoteDevAdmin) {
+          await upsertTherapistApplication({ userId });
+          application = await fetchTherapistApplicationByUser(userId);
+        }
+        setTherapistApplication(application);
+      } catch {
+        setTherapistApplication(null);
+      }
     } catch (err) {
       console.error('Error fetching profile:', err);
     } finally {
@@ -118,8 +149,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const signUp = async (email: string, password: string): Promise<{ error: string | null }> => {
-    const { error } = await supabase.auth.signUp({ email, password });
+  const signUp = async (
+    email: string,
+    password: string,
+    roleIntent: SignupRoleIntent = 'client',
+  ): Promise<{ error: string | null }> => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          role_intent: roleIntent,
+        },
+      },
+    });
     if (error) return { error: error.message };
     return { error: null };
   };
@@ -134,6 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await supabase.auth.signOut();
     setProfile(null);
     setSession(null);
+    setIsTherapistMode(false);
   };
 
   const refreshProfile = async () => {
@@ -151,6 +195,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const canUseTherapistMode = profile?.role === 'therapist' || profile?.role === 'admin';
+  const signupRoleIntent = ((session?.user?.user_metadata?.role_intent as SignupRoleIntent | undefined) || 'client');
+  const isTherapistApplicant = Boolean(
+    therapistApplication
+    && therapistApplication.status !== 'approved'
+    && profile?.role !== 'therapist'
+    && profile?.role !== 'admin',
+  );
   const isDevAdmin =
     profile?.role === 'admin' && isDevAdminEmail(profile?.email || session?.user?.email);
 
@@ -159,6 +210,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsTherapistMode(false);
     }
   }, [canUseTherapistMode, isTherapistMode]);
+
+  useEffect(() => {
+    const currentUserId = session?.user?.id || null;
+    if (activeUserIdRef.current !== currentUserId) {
+      // Always start in client preview/home mode after account switch or fresh sign-in.
+      setIsTherapistMode(false);
+      activeUserIdRef.current = currentUserId;
+    }
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (!session?.user?.id || !profile) return;
@@ -184,6 +244,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         canUseTherapistMode,
         toggleTherapistMode,
         isDevAdmin,
+        therapistApplication,
+        isTherapistApplicant,
+        signupRoleIntent,
       }}
     >
       {children}

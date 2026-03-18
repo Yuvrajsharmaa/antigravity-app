@@ -1,27 +1,37 @@
-import { CareJourneyState, RiskLevel } from '../models/types';
+import {
+  CareFeedbackVariant,
+  CareJourneyState,
+  CarePersonalityState,
+  RiskLevel,
+} from '../models/types';
 
-export type CareBuddyVoice = 'celebrate' | 'coach' | 'reassure' | 'reflect';
+export type CareBuddyVoice = CareFeedbackVariant;
 
 const VOICE_LINES: Record<CareBuddyVoice, string[]> = {
   celebrate: [
-    'Beautiful consistency. Every small check-in counts.',
-    'Nice momentum today. You showed up for yourself.',
-    'Great progress. Keep this calm rhythm going.',
+    'You completed today’s care steps.',
+    'Good consistency today.',
+    'Today’s actions are done.',
   ],
   coach: [
-    'Small steps today, stronger sessions tomorrow.',
-    'A quick log now can make your next session easier.',
-    'Pick one tiny action. Done is better than perfect.',
+    'A short check-in now helps your next session.',
+    'Pick one next action and complete it.',
+    'Progress stays clear when actions stay simple.',
+  ],
+  rebound: [
+    'Fresh start. One check-in rebuilds your rhythm.',
+    'You can restart with one minute today.',
+    'A recovery day still counts as progress.',
   ],
   reassure: [
-    'No pressure. You can always do one gentle step.',
-    'You are not behind. Start from where you are.',
-    'It is okay to keep this light today.',
+    'No pressure. One action is enough for today.',
+    'Start from where you are.',
+    'Keep it light and practical.',
   ],
   reflect: [
-    'What felt lighter today, even by a little?',
-    'One sentence is enough for reflection.',
-    'Notice one pattern. Name one next step.',
+    'What felt different today?',
+    'One sentence is enough for a journal entry.',
+    'Capture one pattern and one next step.',
   ],
 };
 
@@ -34,41 +44,109 @@ const pickLine = (voice: CareBuddyVoice) => {
 export const careBuddyLine = (voice: CareBuddyVoice) => pickLine(voice);
 
 export const careBuddyGreeting = (firstName?: string | null) => {
-  if (firstName) return `Hey ${firstName}, your Care Buddy is here.`;
-  return 'Your Care Buddy is here for today.';
+  if (firstName) return `Hey ${firstName}, Cove is here with you.`;
+  return 'Cove is here for today.';
 };
 
 export const journeyStatusCopy = (journey: CareJourneyState) => {
   if (journey.completedCount === journey.totalCount) {
     return {
       title: 'Daily Care Journey complete',
-      subtitle: 'Lovely work. Keep the rhythm gentle and steady.',
+      subtitle: 'You completed today\'s core care actions.',
       voice: 'celebrate' as CareBuddyVoice,
+    };
+  }
+
+  if (journey.completedCount === 0 && journey.rhythm.repairsAvailable > 0) {
+    return {
+      title: 'Bounce back with one small step',
+      subtitle: 'One check-in restores your rhythm today.',
+      voice: 'rebound' as CareBuddyVoice,
     };
   }
 
   if (journey.completedCount === 0) {
     return {
       title: 'Let us start with one small step',
-      subtitle: 'A 30-second check-in is enough to begin.',
+      subtitle: 'A quick check-in is enough to begin.',
       voice: 'reassure' as CareBuddyVoice,
     };
   }
 
   return {
     title: `${journey.completedCount}/${journey.totalCount} complete today`,
-    subtitle: 'You are building momentum without pressure.',
+    subtitle: 'Complete the next action to stay on track.',
     voice: 'coach' as CareBuddyVoice,
   };
 };
 
-export const therapistNudgePrefill = (riskLevel: RiskLevel, reason: string) => {
-  if (riskLevel === 'high') {
-    return `I noticed a difficult trend (${reason}). I am here with you. Would a short check-in feel helpful right now?`;
+export const getCarePersonalityState = ({
+  completedCount,
+  totalCount,
+  repairsAvailable,
+}: {
+  completedCount: number;
+  totalCount: number;
+  repairsAvailable: number;
+}): CarePersonalityState => {
+  if (completedCount >= totalCount) {
+    return {
+      variant: 'celebrate',
+      title: 'Today is complete',
+      subtitle: pickLine('celebrate'),
+      ctaLabel: 'View rhythm',
+    };
   }
-  if (riskLevel === 'medium') {
-    return `I noticed some strain in your recent check-ins (${reason}). How are you feeling today?`;
+
+  if (completedCount === 0 && repairsAvailable > 0) {
+    return {
+      variant: 'rebound',
+      title: 'Restart today',
+      subtitle: pickLine('rebound'),
+      ctaLabel: 'Start a check-in',
+    };
   }
-  return `Quick supportive check-in: how are you feeling today?`;
+
+  if (completedCount === 0) {
+    return {
+      variant: 'reassure',
+      title: 'Start today',
+      subtitle: pickLine('reassure'),
+      ctaLabel: 'Take first step',
+    };
+  }
+
+  return {
+    variant: 'coach',
+    title: 'Next action ready',
+    subtitle: pickLine('coach'),
+    ctaLabel: 'Continue',
+  };
 };
 
+export const therapistNudgePrefill = (riskLevel: RiskLevel, reason: string) => {
+  const pick = (lines: string[]) => {
+    const i = Math.floor(Date.now() / (1000 * 60 * 60)) % lines.length;
+    return lines[i];
+  };
+
+  if (riskLevel === 'high') {
+    return pick([
+      `I noticed today may feel heavier (${reason}). Would a short check-in feel helpful right now?`,
+      `Your recent check-ins suggest higher strain (${reason}). If helpful, we can do a brief grounding check-in.`,
+      `I am seeing signs of high strain (${reason}). Would you like a gentle check-in together?`,
+    ]);
+  }
+  if (riskLevel === 'medium') {
+    return pick([
+      `I noticed some strain in your recent check-ins (${reason}). How are you feeling today?`,
+      `I am seeing some changes lately (${reason}). Want to share how today has been?`,
+      `It looks like there is some pressure today (${reason}). A quick check-in might help.`,
+    ]);
+  }
+  return pick([
+    'Quick supportive check-in: how are you feeling today?',
+    'Checking in gently. How is your day feeling right now?',
+    'No pressure, just a quick check-in. How are you doing today?',
+  ]);
+};

@@ -1,5 +1,11 @@
 export type AppRole = 'user' | 'therapist' | 'admin';
 
+export type TherapistLockState = 'exploring' | 'locked' | 'switched';
+
+export type TherapistLockAction = 'lock' | 'keep_exploring' | 'switch';
+
+export type TherapistMatchRequestStatus = 'pending' | 'accepted' | 'declined' | 'withdrawn';
+
 export interface Profile {
   id: string;
   role: AppRole;
@@ -12,6 +18,8 @@ export interface Profile {
   created_at: string;
   updated_at: string;
 }
+
+export type SignupRoleIntent = 'client' | 'therapist';
 
 export interface UserPreferences {
   id: string;
@@ -30,6 +38,7 @@ export interface UserPreferences {
   engagement_mode?: 'gentle' | 'balanced' | 'high';
   nudge_snooze_until?: string | null;
   care_buddy_enabled?: boolean;
+  walkthrough_completed?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -53,12 +62,16 @@ export interface Therapist {
   display_name?: string;
   avatar_url?: string | null;
   first_name?: string;
+  standout_quote?: string | null;
+  standout_prompt?: string | null;
 }
 
 export interface MatchReasonChip {
   id: string;
   label: string;
 }
+
+export type MatchConfidenceLabel = 'excellent' | 'strong' | 'good';
 
 export interface MatchScoreBreakdown {
   intent: number;
@@ -74,6 +87,8 @@ export interface MatchedTherapist {
   score: number;
   scoreBreakdown: MatchScoreBreakdown;
   reasonChips: MatchReasonChip[];
+  confidenceLabel: MatchConfidenceLabel;
+  fitHighlights: string[];
   nextAvailableAt: string | null;
   availableSlots72h: number;
 }
@@ -90,6 +105,15 @@ export interface OnboardingStepConfig {
   title: string;
   role: 'shared' | 'client' | 'therapist';
   questions: OnboardingQuestion[];
+}
+
+export interface OnboardingStepV2 {
+  id: string;
+  title: string;
+  role: 'shared' | 'client' | 'therapist';
+  required: boolean;
+  optional: boolean;
+  resumeKey: string;
 }
 
 export interface OnboardingResponseDraft {
@@ -174,12 +198,60 @@ export interface Session {
 export interface ClientMetric {
   id: string;
   user_id: string;
+  check_in_date: string;
   mood: string;
   stress_level: number;
   sleep_hours: number;
+  energy_level: number | null;
+  connectedness_level: number | null;
+  coping_helpfulness: number | null;
   journal_entry: string | null;
   care_score_snapshot: number;
   created_at: string;
+  updated_at: string;
+}
+
+export type JournalEntryType = 'daily_reflection' | 'post_session_reflection';
+
+export interface JournalEntry {
+  id: string;
+  user_id: string;
+  entry_type: JournalEntryType;
+  title: string | null;
+  body: string;
+  mood: string | null;
+  stress_level: number | null;
+  sleep_hours: number | null;
+  care_score_snapshot: number | null;
+  metric_id: string | null;
+  session_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type TherapistApplicationStatus = 'pending' | 'approved' | 'rejected';
+
+export interface TherapistApplication {
+  id: string;
+  user_id: string;
+  status: TherapistApplicationStatus;
+  years_experience: number | null;
+  specialties: string[] | null;
+  languages: string[] | null;
+  communication_style: string | null;
+  headline: string | null;
+  rejection_reason: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TherapistApprovalAction {
+  applicationId: string;
+  status: Exclude<TherapistApplicationStatus, 'pending'>;
+  reviewerId: string;
+  rejectionReason?: string | null;
 }
 
 export type RiskLevel = 'high' | 'medium' | 'stable';
@@ -195,7 +267,7 @@ export interface FlowDependencyState {
 }
 
 export interface CareJourneyGoal {
-  key: 'check_in' | 'reflect' | 'connect';
+  key: 'check_in' | 'journal' | 'connect';
   label: string;
   completed: boolean;
   helper: string;
@@ -225,6 +297,53 @@ export interface CareRhythmState {
   weekMarkers: CareRhythmMarker[];
 }
 
+export interface CareCalendarDay {
+  date: string;
+  hasActivity: boolean;
+  hasCheckIn: boolean;
+  hasJournal: boolean;
+  hasSession: boolean;
+}
+
+export interface CareCalendarMonth {
+  monthKey: string;
+  monthLabel: string;
+  days: CareCalendarDay[];
+}
+
+export interface CareCalendarDayDetail {
+  date: string;
+  hasActivity: boolean;
+  checkIn: {
+    mood: string | null;
+    stressLevel: number | null;
+    sleepHours: number | null;
+  } | null;
+  journalSnippets: string[];
+  sessions: Array<{
+    timeLabel: string;
+    status: Booking['status'];
+    sessionType: Booking['session_type'] | null;
+    therapistName: string | null;
+  }>;
+}
+
+export interface CareRhythmVisualState {
+  streakCount: number;
+  weekMarkers: CareRhythmMarker[];
+  bounceBackEligible: boolean;
+  rewardState: 'idle' | 'earned' | 'milestone';
+}
+
+export type CareFeedbackVariant = 'celebrate' | 'coach' | 'rebound' | 'reassure' | 'reflect';
+
+export interface CarePersonalityState {
+  variant: CareFeedbackVariant;
+  title: string;
+  subtitle: string;
+  ctaLabel?: string;
+}
+
 export interface ConversationHealthState {
   conversationId: string;
   awaitingReply: boolean;
@@ -236,6 +355,110 @@ export interface RoleModeContract {
   role: AppRole;
   canUseTherapistMode: boolean;
   canAccessMatchFlow: boolean;
+  isAdminClientPreview: boolean;
+}
+
+export interface CareScoreFactor {
+  id: 'mood' | 'stress' | 'sleep' | 'energy' | 'connectedness' | 'coping';
+  label: string;
+  weight: number;
+  value: number;
+  summary: string;
+}
+
+export interface CareScoreBreakdown {
+  score: number;
+  factors: CareScoreFactor[];
+}
+
+export interface CarePatternState {
+  label: 'steady' | 'watchful' | 'support-needed';
+  trend: 'improving' | 'stable' | 'needs-support';
+  guidance: string;
+}
+
+export interface TherapistLink {
+  id: string;
+  user_id: string;
+  therapist_id: string;
+  state: TherapistLockState;
+  switch_reason: string | null;
+  started_at: string;
+  ended_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ActiveTherapistLock {
+  id: string;
+  user_id: string;
+  therapist_id: string;
+  therapist_name: string;
+  therapist_avatar: string | null;
+  therapist_headline: string | null;
+  started_at: string;
+}
+
+export interface TherapistMatchRequest {
+  id: string;
+  user_id: string;
+  therapist_id: string;
+  intro_question: string;
+  status: TherapistMatchRequestStatus;
+  responded_by: string | null;
+  responded_at: string | null;
+  created_at: string;
+  updated_at: string;
+  client_name?: string | null;
+  client_avatar?: string | null;
+  therapist_name?: string | null;
+}
+
+export interface HomeUpdateItem {
+  id: string;
+  kind: 'session' | 'message' | 'wellbeing' | 'match';
+  title: string;
+  body: string;
+  timestamp: string;
+  route?: {
+    name: string;
+    params?: Record<string, any>;
+  };
+}
+
+export interface CarePatternExplanation {
+  title: string;
+  description: string;
+  factors: Array<{
+    id: CareScoreFactor['id'];
+    title: string;
+    summary: string;
+  }>;
+}
+
+export interface DailyCheckInDraftV2 {
+  mood: string | null;
+  stressLevel: number;
+  sleepHours: number | null;
+  energyLevel: number;
+  connectednessLevel: number;
+  copingHelpfulness: number;
+  note: string;
+}
+
+export type CoveModalVariant = 'confirm' | 'success' | 'error' | 'info' | 'blocking';
+
+export interface CoveModalAction {
+  label: string;
+  onPress: () => void;
+  tone?: 'primary' | 'secondary' | 'danger';
+  loading?: boolean;
+}
+
+export interface CareScoreRangeMeaning {
+  label: string;
+  description: string;
+  color: string;
 }
 
 export interface NudgeCooldownState {
@@ -251,6 +474,91 @@ export interface AppBootState {
   splashVisible: boolean;
   ready: boolean;
 }
+
+export interface ThemeV2Tokens {
+  semantic: {
+    success: string;
+    effort: string;
+    streak: string;
+    warning: string;
+    insight: string;
+    calm: string;
+    reflect: string;
+  };
+  semanticSoft: {
+    success: string;
+    effort: string;
+    streak: string;
+    warning: string;
+    insight: string;
+    calm: string;
+    reflect: string;
+  };
+  radius: {
+    sm: number;
+    md: number;
+    lg: number;
+    xl: number;
+    xxl: number;
+  };
+}
+
+export interface ThemeV3Tokens {
+  semantic: {
+    success: string;
+    effort: string;
+    streak: string;
+    warning: string;
+    insight: string;
+    calm: string;
+    reflect: string;
+  };
+  semanticSoft: {
+    success: string;
+    effort: string;
+    streak: string;
+    warning: string;
+    insight: string;
+    calm: string;
+    reflect: string;
+  };
+  radius: {
+    sm: number;
+    md: number;
+    lg: number;
+    xl: number;
+    xxl: number;
+  };
+  color: {
+    primary: string;
+    cream: string;
+    ink: string;
+    mist: string;
+  };
+}
+
+export type CoveVariant =
+  | 'default'
+  | 'welcome'
+  | 'listening'
+  | 'thinking'
+  | 'celebration'
+  | 'tiny';
+
+export type CompanionTone = 'celebrate' | 'coach' | 'reassure' | 'reflect';
+
+export type LottieSceneVariant = 'mascot_idle' | 'step_pop' | 'loading' | 'success_pulse' | 'confetti_lite';
+export type MotionPreset = 'loop' | 'oneShot' | 'successPulse' | 'loading';
+export type ReducedMotionMode = 'system' | 'always' | 'never';
+
+export interface OnboardingVisualStep {
+  heroVariant: LottieSceneVariant;
+  ctaStyle: 'primary' | 'secondary';
+  progressMode: 'linear' | 'dots';
+}
+
+export type AvatarAssetState = 'uploading' | 'ready' | 'failed' | 'fallback';
+export type TherapistCardVariant = 'top_match' | 'standard' | 'limited_slots';
 
 export interface CareNudgeEvent {
   id: string;

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,9 +12,11 @@ import { AppBootState } from '../core/models/types';
 
 // Screens
 import { BrandedSplashScreen } from '../features/auth/BrandedSplashScreen';
+import { TherapistApplicationStatusScreen } from '../features/auth/TherapistApplicationStatusScreen';
 import { WelcomeScreen } from '../features/auth/WelcomeScreen';
 import { OnboardingScreen } from '../features/onboarding/OnboardingScreen';
 import { HomeScreen } from '../features/home/HomeScreen';
+import { HomeUpdatesScreen } from '../features/home/HomeUpdatesScreen';
 import { TherapistMatchScreen } from '../features/match/TherapistMatchScreen';
 import { TherapistProfileScreen } from '../features/therapist/TherapistProfileScreen';
 import { SlotSelectionScreen } from '../features/booking/SlotSelectionScreen';
@@ -31,6 +33,7 @@ import { JournalScreen } from '../features/journal/JournalScreen';
 import { NotificationsScreen } from '../features/profile/NotificationsScreen';
 import { EditProfileScreen } from '../features/profile/EditProfileScreen';
 import { InfoScreen } from '../features/profile/InfoScreen';
+import { TherapistApprovalsScreen } from '../features/admin/TherapistApprovalsScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -44,7 +47,7 @@ const HomeStackScreen = () => (
     <HomeStack.Screen name="HomeMain" component={HomeScreen} />
     <HomeStack.Screen name="ClientDetail" component={ClientDetailScreen} />
     <HomeStack.Screen name="Journal" component={JournalScreen} />
-    <HomeStack.Screen name="HomeNotifications" component={NotificationsScreen} />
+    <HomeStack.Screen name="HomeNotifications" component={HomeUpdatesScreen} />
   </HomeStack.Navigator>
 );
 
@@ -70,6 +73,7 @@ const ProfileStackScreen = () => (
     <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} />
     <ProfileStack.Screen name="Notifications" component={NotificationsScreen} />
     <ProfileStack.Screen name="ProfileInfo" component={InfoScreen} />
+    <ProfileStack.Screen name="TherapistApprovals" component={TherapistApprovalsScreen} />
   </ProfileStack.Navigator>
 );
 
@@ -81,6 +85,18 @@ const MainTabs = () => {
   const insets = require('react-native-safe-area-context').useSafeAreaInsets();
   const roleMode = getRoleModeContract(profile?.role, isTherapistMode);
   const showMatchTab = roleMode.canAccessMatchFlow;
+  const baseTabBarStyle = {
+    backgroundColor: Colors.bg.secondary,
+    borderTopColor: Colors.stroke.soft,
+    borderTopWidth: 1,
+    paddingTop: 8,
+    paddingBottom: Math.max(insets.bottom, 8),
+    height: 58 + Math.max(insets.bottom, 8),
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    elevation: 0,
+    shadowOpacity: 0,
+  } as const;
 
   return (
     <Tab.Navigator
@@ -114,42 +130,68 @@ const MainTabs = () => {
           fontSize: 11,
           fontWeight: '500',
         },
-        tabBarStyle: {
-          backgroundColor: Colors.bg.secondary,
-          borderTopColor: Colors.stroke.subtle,
-          borderTopWidth: 1,
-          paddingTop: 8,
-          paddingBottom: Math.max(insets.bottom, 8),
-          height: 60 + Math.max(insets.bottom, 8),
-          borderTopLeftRadius: 16,
-          borderTopRightRadius: 16,
-          elevation: 6,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.04,
-          shadowRadius: 8,
-        },
+        tabBarStyle: baseTabBarStyle,
       })}
     >
       <Tab.Screen
         name="HomeTab"
         component={HomeStackScreen}
-        options={{ tabBarLabel: roleMode.canUseTherapistMode && isTherapistMode ? 'Dashboard' : 'Home' }}
+        options={({ route }) => {
+          const focusedRoute = getFocusedRouteNameFromRoute(route) ?? 'HomeMain';
+          const hide = focusedRoute === 'Journal' || focusedRoute === 'ClientDetail' || focusedRoute === 'HomeNotifications';
+          return {
+            tabBarLabel: roleMode.canUseTherapistMode && isTherapistMode ? 'Dashboard' : 'Home',
+            tabBarStyle: hide ? { display: 'none' } : baseTabBarStyle,
+          };
+        }}
       />
       {showMatchTab ? (
-        <Tab.Screen name="MatchTab" component={MatchStackScreen} options={{ tabBarLabel: 'Match' }} />
+        <Tab.Screen
+          name="MatchTab"
+          component={MatchStackScreen}
+          options={({ route }) => {
+            const focusedRoute = getFocusedRouteNameFromRoute(route) ?? 'TherapistMatch';
+            const hide = focusedRoute !== 'TherapistMatch';
+            return {
+              tabBarLabel: 'Match',
+              tabBarStyle: hide ? { display: 'none' } : baseTabBarStyle,
+            };
+          }}
+        />
       ) : null}
       <Tab.Screen name="SessionsTab" component={SessionsScreen} options={{ tabBarLabel: 'Sessions' }} />
-      <Tab.Screen name="MessagesTab" component={MessagesStackScreen} options={{ tabBarLabel: 'Messages' }} />
-      <Tab.Screen name="ProfileTab" component={ProfileStackScreen} options={{ tabBarLabel: 'Profile' }} />
+      <Tab.Screen
+        name="MessagesTab"
+        component={MessagesStackScreen}
+        options={({ route }) => {
+          const focusedRoute = getFocusedRouteNameFromRoute(route) ?? 'MessagesList';
+          return {
+            tabBarLabel: 'Messages',
+            tabBarStyle: focusedRoute === 'Chat' ? { display: 'none' } : baseTabBarStyle,
+          };
+        }}
+      />
+      <Tab.Screen
+        name="ProfileTab"
+        component={ProfileStackScreen}
+        options={({ route }) => {
+          const focusedRoute = getFocusedRouteNameFromRoute(route) ?? 'ProfileMain';
+          const hide = focusedRoute !== 'ProfileMain';
+          return {
+            tabBarLabel: 'Profile',
+            tabBarStyle: hide ? { display: 'none' } : baseTabBarStyle,
+          };
+        }}
+      />
     </Tab.Navigator>
   );
 };
 
 export const AppNavigator: React.FC = () => {
-  const { session, profile, isLoading } = useAuth();
+  const { session, profile, isLoading, isTherapistApplicant } = useAuth();
   const [minSplashElapsed, setMinSplashElapsed] = useState(false);
   const [splashFailsafeElapsed, setSplashFailsafeElapsed] = useState(false);
+  const [allowApplicantClientMode, setAllowApplicantClientMode] = useState(false);
 
   useEffect(() => {
     const minTimer = setTimeout(() => setMinSplashElapsed(true), MIN_SPLASH_MS);
@@ -159,6 +201,12 @@ export const AppNavigator: React.FC = () => {
       clearTimeout(failSafeTimer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!session || !isTherapistApplicant) {
+      setAllowApplicantClientMode(false);
+    }
+  }, [isTherapistApplicant, session]);
 
   const bootState = useMemo<AppBootState>(() => {
     const splashVisible = !minSplashElapsed || (isLoading && !splashFailsafeElapsed);
@@ -188,6 +236,12 @@ export const AppNavigator: React.FC = () => {
           <Stack.Screen name="Welcome" component={WelcomeScreen} />
         ) : !profile?.onboarding_completed ? (
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+        ) : isTherapistApplicant && !allowApplicantClientMode ? (
+          <Stack.Screen name="TherapistApplicationStatus">
+            {() => (
+              <TherapistApplicationStatusScreen onContinue={() => setAllowApplicantClientMode(true)} />
+            )}
+          </Stack.Screen>
         ) : (
           <Stack.Group>
             <Stack.Screen name="Main" component={MainTabs} />

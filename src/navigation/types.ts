@@ -5,6 +5,12 @@ export interface ChatRouteParams {
   therapistName?: string;
   therapistAvatar?: string | null;
   therapistId?: string;
+  attentionCue?: {
+    riskLevel?: 'high' | 'medium' | 'stable' | null;
+    recentMood?: string | null;
+    overdueCheckIn?: boolean;
+    nudgeDue?: boolean;
+  };
 }
 
 export interface TherapistProfileRouteParams {
@@ -34,4 +40,3 @@ export interface VideoCallRouteSession {
   booking_status?: 'pending_payment' | 'confirmed' | 'cancelled' | 'completed' | 'failed';
   session_type?: 'video' | 'chat';
 }
-

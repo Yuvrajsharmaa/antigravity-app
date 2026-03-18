@@ -87,12 +87,21 @@ export const useCareJourney = (userId: string | null | undefined): CareJourneyRe
 
       const { data: metrics, error: metricsError } = await supabase
         .from('client_metrics')
-        .select('created_at, journal_entry')
+        .select('created_at,check_in_date')
         .eq('user_id', userId)
         .gte('created_at', historyStart.toISOString())
         .order('created_at', { ascending: false });
 
       if (metricsError) throw metricsError;
+
+      const { data: journalEntries, error: journalError } = await supabase
+        .from('journal_entries')
+        .select('id')
+        .eq('user_id', userId)
+        .gte('created_at', today.toISOString())
+        .limit(1);
+
+      if (journalError) throw journalError;
 
       const { data: messages, error: messageError } = await supabase
         .from('messages')
@@ -104,14 +113,16 @@ export const useCareJourney = (userId: string | null | undefined): CareJourneyRe
       if (messageError) throw messageError;
 
       const metricRows = metrics || [];
-      const hasCheckInToday = metricRows.some((item) => new Date(item.created_at) >= today);
-      const hasReflectionToday = metricRows.some((item) => (
-        new Date(item.created_at) >= today &&
-        Boolean(item.journal_entry && item.journal_entry.trim().length > 8)
-      ));
+      const todayKey = toDateKey(today);
+      const hasCheckInToday = metricRows.some((item) => {
+        const checkInKey = item.check_in_date ? String(item.check_in_date).slice(0, 10) : null;
+        return checkInKey === todayKey;
+      });
+      const hasJournalToday = Boolean(journalEntries?.length);
       const hasConnectToday = Boolean(messages && messages.length > 0);
 
-      const dateKeys = metricRows.map((item) => toDateKey(new Date(item.created_at)));
+      const dateKeys = metricRows
+        .map((item) => (item.check_in_date ? String(item.check_in_date).slice(0, 10) : toDateKey(new Date(item.created_at))));
       const uniqueDays = new Set(dateKeys);
       const currentStreak = computeCurrentStreak(uniqueDays, today);
       const highestStreak = computeHighestStreak(dateKeys);
@@ -136,10 +147,10 @@ export const useCareJourney = (userId: string | null | undefined): CareJourneyRe
           helper: 'Log mood and stress in under a minute.',
         },
         {
-          key: 'reflect',
-          label: 'Reflect',
-          completed: hasReflectionToday,
-          helper: 'Add one line in your journal.',
+          key: 'journal',
+          label: 'Journal',
+          completed: hasJournalToday,
+          helper: 'Capture one brief note in your journal.',
         },
         {
           key: 'connect',

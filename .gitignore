@@ -31,7 +31,20 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
+.env.*
 .env*.local
+
+# local agent artifacts
+.agents/
+skills-lock.json
+
+# local reference media (do not commit)
+/Inspo/
+/Mascot/
+
+# Supabase local CLI artifacts
+supabase/.temp/
 
 # typescript
 *.tsbuildinfo

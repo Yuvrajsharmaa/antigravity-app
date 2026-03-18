@@ -17,7 +17,8 @@
       "bundleIdentifier": "com.carespace.app",
       "infoPlist": {
         "NSCameraUsageDescription": "Care Space needs camera access for video sessions.",
-        "NSMicrophoneUsageDescription": "Care Space needs microphone access for video sessions."
+        "NSMicrophoneUsageDescription": "Care Space needs microphone access for video sessions.",
+        "NSPhotoLibraryUsageDescription": "Care Space needs photo access so you can upload your profile avatar."
       }
     },
     "android": {
@@ -31,7 +32,8 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.READ_MEDIA_IMAGES"
       ]
     },
     "web": {
@@ -44,7 +46,13 @@
         "expo-notifications",
         {
           "icon": "./assets/android-icon-monochrome.png",
-          "color": "#6E907C"
+          "color": "#6F8F7D"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Care Space needs photo access so you can upload your profile avatar."
         }
       ],
       "expo-font"

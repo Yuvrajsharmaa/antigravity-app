@@ -1,134 +1,239 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  FlatList,
+  Keyboard,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Card, Button, EmptyState, LoadingState, BackendSetupCard, ErrorState, PillChip } from '../../core/components';
+import {
+  Button,
+  Card,
+  CoveMascot,
+  CoveModal,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PillChip,
+  ScreenScaffold,
+} from '../../core/components';
+import { Colors, Radius, Spacing, Typography } from '../../core/theme';
 import { useAuth } from '../../core/context/AuthContext';
-import { supabase } from '../../services/supabase';
-import { useFocusEffect } from '@react-navigation/native';
-import { useClientMetricsReadiness } from '../../core/hooks/useClientMetricsReadiness';
-import { careBuddyLine } from '../../core/utils/careBuddy';
 import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
+import { supabase } from '../../services/supabase';
+import { createJournalEntry, fetchJournalEntries } from '../../core/services/careFlowService';
+import { CoveModalVariant, JournalEntry, JournalEntryType } from '../../core/models/types';
+import { navigateBackSafe } from '../../navigation/safeBack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { localDateKey } from '../../core/utils/date';
 
-interface JournalEntry {
-  id: string;
-  created_at: string;
-  mood: string;
-  stress_level: number;
-  sleep_hours: number;
-  care_score_snapshot: number;
-  journal_entry: string | null;
-}
+type FilterType = 'all' | JournalEntryType;
+type JournalMode = 'write' | 'history';
+
+type JournalRow = JournalEntry & {
+  source: 'journal_entries' | 'legacy_metrics';
+};
+
+const FILTER_OPTIONS: Array<{ label: string; value: FilterType }> = [
+  { label: 'All', value: 'all' },
+  { label: 'Daily', value: 'daily_reflection' },
+  { label: 'Post-session', value: 'post_session_reflection' },
+];
+
+const PROMPT_CHIPS = [
+  'What felt heavy today?',
+  'What helped even a little?',
+  'One next step for tomorrow',
+];
+
+const moodText = (entry: JournalRow) => {
+  const parts: string[] = [];
+  if (entry.mood) parts.push(`Mood: ${entry.mood}`);
+  if (entry.stress_level !== null) parts.push(`Stress: ${entry.stress_level}`);
+  if (entry.sleep_hours !== null) parts.push(`Sleep: ${entry.sleep_hours}h`);
+  return parts.join(' · ');
+};
 
 export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { height: viewportHeight } = useWindowDimensions();
   const tabSafeBottomPadding = useTabSafeBottomPadding(Spacing.xxl);
-  const { ready, requiresSetup, issue, refresh } = useClientMetricsReadiness();
 
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [todayMetricId, setTodayMetricId] = useState<string | null>(null);
+  const [entries, setEntries] = useState<JournalRow[]>([]);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [todayMetricId, setTodayMetricId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterType>('all');
+  const [mode, setMode] = useState<JournalMode>('write');
+  const [selectedEntry, setSelectedEntry] = useState<JournalRow | null>(null);
+  const [entryDraft, setEntryDraft] = useState('');
+  const [entrySaving, setEntrySaving] = useState(false);
+  const [detailKeyboardHeight, setDetailKeyboardHeight] = useState(0);
 
-  const fetchJournal = useCallback(async () => {
-    if (!user) return;
+  const [feedback, setFeedback] = useState<{
+    visible: boolean;
+    variant: CoveModalVariant;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    variant: 'info',
+    title: '',
+    message: '',
+  });
 
-    if (!ready) {
+  const filteredEntries = useMemo(() => {
+    if (filter === 'all') return entries;
+    return entries.filter((entry) => entry.entry_type === filter);
+  }, [entries, filter]);
+
+  const loadJournal = useCallback(async () => {
+    if (!user?.id) {
       setLoading(false);
       return;
     }
 
     setLoading(true);
-    setLoadError(null);
+    setError(null);
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    try {
+      const dayStart = new Date();
+      dayStart.setHours(0, 0, 0, 0);
 
-    const { data: todayData, error: todayError } = await supabase
-      .from('client_metrics')
-      .select('id, journal_entry')
-      .eq('user_id', user.id)
-      .gte('created_at', today.toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      const [{ data: metricToday, error: metricTodayError }, journalRows, legacyRows] = await Promise.all([
+        supabase
+          .from('client_metrics')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('check_in_date', localDateKey())
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        fetchJournalEntries(user.id),
+        supabase
+          .from('client_metrics')
+          .select('id, created_at, mood, stress_level, sleep_hours, journal_entry')
+          .eq('user_id', user.id)
+          .not('journal_entry', 'is', null)
+          .order('created_at', { ascending: false }),
+      ]);
 
-    if (todayError) {
-      setLoadError(todayError.message || 'Unable to load today\'s check-in.');
+      if (metricTodayError) throw metricTodayError;
+      if (legacyRows.error) throw legacyRows.error;
+
+      setTodayMetricId(metricToday?.id || null);
+
+      const normalizedFromJournal = (journalRows || []).map((row) => ({
+        ...row,
+        source: 'journal_entries' as const,
+      }));
+
+      const normalizedLegacy = ((legacyRows.data || []) as any[])
+        .filter((row) => Boolean(row.journal_entry && String(row.journal_entry).trim().length))
+        .map((row) => ({
+          id: `legacy-${row.id}`,
+          user_id: user.id,
+          entry_type: 'daily_reflection' as const,
+          title: 'Legacy journal entry',
+          body: row.journal_entry as string,
+          mood: row.mood,
+          stress_level: row.stress_level,
+          sleep_hours: row.sleep_hours,
+          care_score_snapshot: null,
+          metric_id: row.id,
+          session_id: null,
+          created_at: row.created_at,
+          updated_at: row.created_at,
+          source: 'legacy_metrics' as const,
+        }));
+
+      const seenBodies = new Set<string>();
+      const merged = [...normalizedFromJournal, ...normalizedLegacy].filter((row) => {
+        const key = `${new Date(row.created_at).toISOString().slice(0, 16)}-${row.body.trim()}`;
+        if (seenBodies.has(key)) return false;
+        seenBodies.add(key);
+        return true;
+      });
+
+      merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      setEntries(merged);
+    } catch (loadErr: any) {
+      const code = `${loadErr?.code || ''}`;
+      if (code === '42P01') {
+        setError('Journal table is missing. Run the latest Supabase migration to enable Journal v2.');
+      } else {
+        setError(loadErr.message || 'Unable to load journal right now.');
+      }
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setTodayMetricId(todayData?.id || null);
-    setDraft(todayData?.journal_entry || '');
-
-    const { data: logs, error: logsError } = await supabase
-      .from('client_metrics')
-      .select('id, created_at, mood, stress_level, sleep_hours, care_score_snapshot, journal_entry')
-      .eq('user_id', user.id)
-      .not('journal_entry', 'is', null)
-      .order('created_at', { ascending: false });
-
-    if (logsError) {
-      setLoadError(logsError.message || 'Unable to load journal entries.');
-      setLoading(false);
-      return;
-    }
-
-    setEntries((logs || []) as JournalEntry[]);
-    setLoading(false);
-  }, [ready, user]);
-
-  useFocusEffect(
-    useCallback(() => {
-      refresh();
-      fetchJournal();
-    }, [fetchJournal, refresh])
-  );
+  }, [user?.id]);
 
   useEffect(() => {
-    if (ready) {
-      fetchJournal();
-    }
-  }, [fetchJournal, ready]);
+    loadJournal();
+  }, [loadJournal]);
 
-  const saveJournal = async () => {
-    if (!ready) {
-      Alert.alert('Setup required', issue || 'Backend setup is incomplete.');
-      return;
-    }
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      setDetailKeyboardHeight(event.endCoordinates?.height || 0);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => setDetailKeyboardHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
-    if (!todayMetricId) {
-      Alert.alert(
-        'Complete daily check-in first',
-        'To save today\'s journal, complete today\'s Daily Check-in from Home.'
-      );
-      return;
-    }
+  const showFeedback = (variant: 'info' | 'success' | 'error' | 'blocking', title: string, message: string) => {
+    setFeedback({ visible: true, variant, title, message });
+  };
 
-    if (!draft.trim()) {
-      Alert.alert('Journal is empty', 'Please write something before saving.');
+  const saveEntry = async () => {
+    if (!user?.id) return;
+
+    const body = draft.trim();
+    if (!body) {
+      showFeedback('blocking', 'Write first', 'Add a short line before saving.');
       return;
     }
 
     setSaving(true);
-    const { error } = await supabase
-      .from('client_metrics')
-      .update({ journal_entry: draft.trim() })
-      .eq('id', todayMetricId);
+    try {
+      await createJournalEntry({
+        userId: user.id,
+        entryType: 'daily_reflection',
+        title: 'Daily journal',
+        body,
+        metricId: todayMetricId,
+      });
 
-    setSaving(false);
-
-    if (error) {
-      Alert.alert('Save failed', error.message || 'Unable to save journal entry.');
-      return;
+      setDraft('');
+      setMode('history');
+      await loadJournal();
+      showFeedback('success', 'Journal saved', 'Your entry is now in history.');
+    } catch (saveError: any) {
+      showFeedback('error', 'Save failed', saveError.message || 'Please try again.');
+    } finally {
+      setSaving(false);
     }
+  };
 
-    Alert.alert('Saved', 'Your journal has been saved to today\'s check-in.');
-    fetchJournal();
+  const applyPrompt = (prompt: string) => {
+    setDraft((prev) => (prev.trim().length ? `${prev.trim()}\n\n${prompt}\n` : `${prompt}\n`));
   };
 
   const formatDate = (iso: string) => {
@@ -136,108 +241,314 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
     return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  const openEntry = (entry: JournalRow) => {
+    setSelectedEntry(entry);
+    setEntryDraft(entry.body);
+  };
+
+  const saveEntryChanges = async () => {
+    if (!selectedEntry || selectedEntry.source !== 'journal_entries') return;
+    const nextBody = entryDraft.trim();
+    if (!nextBody) {
+      showFeedback('blocking', 'Entry is empty', 'Write a line before saving changes.');
+      return;
+    }
+
+    setEntrySaving(true);
+    const { error: updateError } = await supabase
+      .from('journal_entries')
+      .update({
+        body: nextBody,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', selectedEntry.id);
+
+    setEntrySaving(false);
+
+    if (updateError) {
+      showFeedback('error', 'Could not update', updateError.message || 'Please try again.');
+      return;
+    }
+
+    setSelectedEntry(null);
+    await loadJournal();
+    showFeedback('success', 'Updated', 'Your journal entry was updated.');
+  };
+
+  const deleteEntry = async () => {
+    if (!selectedEntry || selectedEntry.source !== 'journal_entries') return;
+
+    setEntrySaving(true);
+    const { error: deleteError } = await supabase
+      .from('journal_entries')
+      .delete()
+      .eq('id', selectedEntry.id);
+
+    setEntrySaving(false);
+
+    if (deleteError) {
+      showFeedback('error', 'Could not delete', deleteError.message || 'Please try again.');
+      return;
+    }
+
+    setSelectedEntry(null);
+    await loadJournal();
+    showFeedback('success', 'Deleted', 'The entry has been removed.');
+  };
+
+  const renderEntry = ({ item }: { item: JournalRow }) => (
+    <TouchableOpacity activeOpacity={0.86} onPress={() => openEntry(item)}>
+      <Card style={styles.entryCard}>
+        <View style={styles.entryHeader}>
+          <Text style={styles.entryDate}>{formatDate(item.created_at)}</Text>
+          <View
+            style={[
+              styles.typePill,
+              item.entry_type === 'post_session_reflection' && styles.typePillSession,
+            ]}
+          >
+            <Text style={styles.typePillText}>
+              {item.entry_type === 'post_session_reflection' ? 'Post-session' : 'Daily'}
+            </Text>
+          </View>
+        </View>
+
+        {item.title ? <Text style={styles.entryTitle}>{item.title}</Text> : null}
+        <Text style={styles.entryBody} numberOfLines={3}>{item.body}</Text>
+
+        {moodText(item) ? <Text style={styles.entryMeta}>{moodText(item)}</Text> : null}
+      </Card>
+    </TouchableOpacity>
+  );
+
+  const detailSheetMaxHeight = Math.max(
+    360,
+    Math.min(
+      viewportHeight * 0.9,
+      viewportHeight - insets.top - Math.max(detailKeyboardHeight - insets.bottom, 0) - Spacing.md,
+    ),
+  );
+
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
+    <ScreenScaffold scroll={false}>
+      <View style={styles.root}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigateBackSafe(navigation, 'HomeMain')}>
           <Ionicons name="chevron-back" size={22} color={Colors.text.primary} />
         </TouchableOpacity>
         <Text style={styles.title}>Journal</Text>
-        <View style={{ width: 22 }} />
+        <View style={styles.backBtnGhost} />
       </View>
 
-      <FlatList
-        data={entries}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={[styles.listContent, { paddingBottom: tabSafeBottomPadding }]}
-        ListHeaderComponent={
-          <>
-            {requiresSetup ? (
-              <BackendSetupCard
-                title="Journal Setup Required"
-                message={issue || undefined}
-                onRetry={refresh}
-              />
-            ) : (
-              <Card style={styles.composeCard}>
-                <Text style={styles.composeTitle}>Today&apos;s reflection</Text>
-                <Text style={styles.composeSubtitle}>
-                  This saves into today&apos;s check-in. Complete check-in first if this is disabled.
-                </Text>
-                <Text style={styles.buddyHint}>{careBuddyLine('reflect')}</Text>
-                <View style={styles.promptRow}>
-                  {[
-                    'What felt heavy today?',
-                    'What helped even a little?',
-                    'One next step for tomorrow',
-                  ].map((prompt) => (
-                    <PillChip
-                      key={prompt}
-                      label={prompt}
-                      selected={false}
-                      onPress={() => setDraft((prev) => (prev ? `${prev}\n\n${prompt}\n` : `${prompt}\n`))}
-                    />
-                  ))}
-                </View>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Write about today..."
-                  placeholderTextColor={Colors.text.tertiary}
-                  multiline
-                  value={draft}
-                  onChangeText={setDraft}
-                />
-                <Button
-                  title={saving ? 'Saving...' : 'Save Journal'}
-                  onPress={saveJournal}
-                  loading={saving}
-                  disabled={!ready || !todayMetricId}
-                />
-                {!todayMetricId && (
-                  <Text style={styles.helperText}>No check-in found for today yet.</Text>
-                )}
-              </Card>
-            )}
+      <View style={styles.modeRow}>
+        <TouchableOpacity
+          onPress={() => setMode('write')}
+          style={[styles.modeTab, mode === 'write' && styles.modeTabActive]}
+        >
+          <Text style={[styles.modeTabText, mode === 'write' && styles.modeTabTextActive]}>Write</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setMode('history')}
+          style={[styles.modeTab, mode === 'history' && styles.modeTabActive]}
+        >
+          <Text style={[styles.modeTabText, mode === 'history' && styles.modeTabTextActive]}>History</Text>
+        </TouchableOpacity>
+      </View>
 
-            <Text style={styles.sectionTitle}>Past journal entries</Text>
-          </>
-        }
-        ListEmptyComponent={
-          loadError ? (
-            <ErrorState message={loadError} onRetry={fetchJournal} />
-          ) : loading ? (
-            <LoadingState message="Loading journal..." />
-          ) : (
+      {mode === 'write' ? (
+        <>
+          <Card style={styles.composeCard}>
+            <View style={styles.composeHero}>
+              <CoveMascot variant="listening" size={56} />
+              <Text style={styles.composeTitle}>Today&apos;s entry</Text>
+            </View>
+
+            <Text style={styles.composeSubtitle}>Write briefly. Keep it honest and practical.</Text>
+
+            <View style={styles.promptRow}>
+              {PROMPT_CHIPS.map((prompt) => (
+                <PillChip
+                  key={prompt}
+                  label={prompt}
+                  selected={false}
+                  onPress={() => applyPrompt(prompt)}
+                />
+              ))}
+            </View>
+
+            <TextInput
+              style={styles.input}
+              placeholder="Write what felt important today"
+              placeholderTextColor={Colors.text.tertiary}
+              multiline
+              value={draft}
+              onChangeText={setDraft}
+            />
+
+            <Button
+              title={saving ? 'Saving...' : 'Save journal'}
+              onPress={saveEntry}
+              loading={saving}
+              disabled={saving}
+            />
+          </Card>
+
+          {entries.length > 0 ? (
+            <TouchableOpacity style={styles.historyJump} onPress={() => setMode('history')}>
+              <Text style={styles.historyJumpText}>View recent entries</Text>
+              <Ionicons name="arrow-forward" size={16} color={Colors.accent.primary} />
+            </TouchableOpacity>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <View style={styles.filterRow}>
+            {FILTER_OPTIONS.map((option) => (
+              <PillChip
+                key={option.value}
+                label={option.label}
+                selected={filter === option.value}
+                onPress={() => setFilter(option.value)}
+              />
+            ))}
+          </View>
+
+          {loading ? (
+            <LoadingState message="Loading journal..." style={styles.stateSpacing} />
+          ) : error ? (
+            <ErrorState message={error} onRetry={loadJournal} style={styles.stateSpacing} />
+          ) : filteredEntries.length === 0 ? (
             <EmptyState
               icon="journal-outline"
               title="No journal entries yet"
-              message="Your saved reflections will show here after you add them in daily check-ins."
+              message="Your entries will appear here once you save your first note."
+              style={styles.stateSpacing}
             />
-          )
-        }
-        renderItem={({ item }) => (
-          <Card style={styles.entryCard}>
-            <View style={styles.entryHeader}>
-              <Text style={styles.entryDate}>{formatDate(item.created_at)}</Text>
-              <View style={styles.scorePill}>
-                <Text style={styles.scoreText}>CareScore {item.care_score_snapshot}</Text>
+          ) : (
+            <FlatList
+              data={filteredEntries}
+              keyExtractor={(item) => item.id}
+              renderItem={renderEntry}
+              contentContainerStyle={[styles.listContent, { paddingBottom: tabSafeBottomPadding }]}
+              ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
+              showsVerticalScrollIndicator={false}
+            />
+          )}
+        </>
+      )}
+
+      <Modal
+        visible={Boolean(selectedEntry)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          Keyboard.dismiss();
+          setSelectedEntry(null);
+        }}
+      >
+        <View style={styles.detailOverlay}>
+          <Pressable
+            style={styles.detailBackdrop}
+            onPress={() => {
+              Keyboard.dismiss();
+              setSelectedEntry(null);
+            }}
+          />
+          <View style={styles.detailKeyboardWrap}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+          <View
+            style={[
+              styles.detailSheet,
+              {
+                maxHeight: detailSheetMaxHeight,
+                marginTop: insets.top + Spacing.md,
+                paddingBottom:
+                  Math.max(insets.bottom, Spacing.lg)
+                  + (Platform.OS === 'android' ? Math.min(detailKeyboardHeight, 100) : 0),
+              },
+            ]}
+          >
+            <View style={styles.detailHeader}>
+              <Text style={styles.detailTitle}>Entry detail</Text>
+              <View style={styles.detailHeaderActions}>
+                <TouchableOpacity onPress={Keyboard.dismiss} style={styles.keyboardDoneBtn}>
+                  <Text style={styles.keyboardDoneText}>Done</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setSelectedEntry(null);
+                  }}
+                >
+                  <Ionicons name="close" size={22} color={Colors.text.primary} />
+                </TouchableOpacity>
               </View>
             </View>
-            <Text style={styles.entryBody}>{item.journal_entry}</Text>
-            <Text style={styles.entryMeta}>
-              Mood: {item.mood} · Stress: {item.stress_level} · Sleep: {item.sleep_hours}h
-            </Text>
-          </Card>
-        )}
+
+            {selectedEntry ? (
+              <ScrollView
+                style={styles.detailScroll}
+                contentContainerStyle={styles.detailScrollContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={styles.detailDate}>{formatDate(selectedEntry.created_at)}</Text>
+                <TextInput
+                  style={styles.detailInput}
+                  multiline
+                  value={entryDraft}
+                  onChangeText={setEntryDraft}
+                  editable={selectedEntry.source === 'journal_entries'}
+                />
+
+                {selectedEntry.source === 'journal_entries' ? (
+                  <View style={styles.detailActions}>
+                    <Button
+                      title="Delete"
+                      variant="danger"
+                      onPress={deleteEntry}
+                      loading={entrySaving}
+                      fullWidth={false}
+                      style={styles.detailBtn}
+                    />
+                    <Button
+                      title="Save changes"
+                      onPress={saveEntryChanges}
+                      loading={entrySaving}
+                      fullWidth={false}
+                      style={styles.detailBtn}
+                    />
+                  </View>
+                ) : (
+                  <Text style={styles.legacyHint}>Legacy entries are read-only.</Text>
+                )}
+              </ScrollView>
+            ) : null}
+          </View>
+          </TouchableWithoutFeedback>
+          </View>
+        </View>
+      </Modal>
+
+      <CoveModal
+        visible={feedback.visible}
+        variant={feedback.variant}
+        title={feedback.title}
+        message={feedback.message}
+        primaryAction={{
+          label: 'Okay',
+          onPress: () => setFeedback((prev) => ({ ...prev, visible: false })),
+        }}
+        onDismiss={() => setFeedback((prev) => ({ ...prev, visible: false }))}
       />
-    </SafeAreaView>
+      </View>
+    </ScreenScaffold>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: {
+  root: {
     flex: 1,
-    backgroundColor: Colors.bg.primary,
   },
   header: {
     flexDirection: 'row',
@@ -248,40 +559,69 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 14,
-    backgroundColor: Colors.bg.secondary,
+    width: 40,
+    height: 40,
+    borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.bg.secondary,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  backBtnGhost: {
+    width: 40,
+    height: 40,
   },
   title: {
     ...Typography.bodySemibold,
     color: Colors.text.primary,
   },
-  listContent: {
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.xxxxl,
-    gap: Spacing.md,
+  modeRow: {
+    flexDirection: 'row',
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.xs,
+    backgroundColor: Colors.bg.tertiary,
+    borderRadius: Radius.lg,
+    padding: 4,
+    gap: 4,
+  },
+  modeTab: {
+    flex: 1,
+    borderRadius: Radius.md,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modeTabActive: {
+    backgroundColor: Colors.bg.secondary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+  },
+  modeTabText: {
+    ...Typography.body,
+    color: Colors.text.secondary,
+  },
+  modeTabTextActive: {
+    color: Colors.text.primary,
+    fontWeight: '700',
   },
   composeCard: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.md,
     gap: Spacing.sm,
-    marginBottom: Spacing.md,
-    borderRadius: Radius.xl,
+  },
+  composeHero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
   },
   composeTitle: {
-    ...Typography.bodySemibold,
+    ...Typography.title3,
     color: Colors.text.primary,
   },
   composeSubtitle: {
     ...Typography.caption,
     color: Colors.text.secondary,
-  },
-  buddyHint: {
-    ...Typography.caption,
-    color: Colors.accent.primary,
   },
   promptRow: {
     flexDirection: 'row',
@@ -289,27 +629,47 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
   },
   input: {
-    minHeight: 120,
+    minHeight: 140,
     borderRadius: Radius.xl,
     borderWidth: 1,
-    borderColor: Colors.stroke.subtle,
-    backgroundColor: Colors.bg.primary,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
+    borderColor: Colors.stroke.medium,
+    backgroundColor: Colors.bg.secondary,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    textAlignVertical: 'top',
     ...Typography.body,
     color: Colors.text.primary,
-    textAlignVertical: 'top',
   },
-  helperText: {
-    ...Typography.caption,
-    color: Colors.text.tertiary,
+  historyJump: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.bg.secondary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  sectionTitle: {
-    ...Typography.captionEmphasis,
-    color: Colors.text.secondary,
-    textTransform: 'uppercase',
-    marginBottom: Spacing.xs,
-    marginTop: Spacing.xs,
+  historyJumpText: {
+    ...Typography.bodyEmphasis,
+    color: Colors.accent.primary,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.sm,
+  },
+  stateSpacing: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.md,
+  },
+  listContent: {
+    paddingHorizontal: Spacing.xl,
+    paddingBottom: Spacing.xxxxl,
   },
   entryCard: {
     gap: Spacing.xs,
@@ -324,23 +684,108 @@ const styles = StyleSheet.create({
     ...Typography.bodySemibold,
     color: Colors.text.primary,
   },
-  scorePill: {
-    backgroundColor: Colors.accent.soft,
+  typePill: {
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.semanticSoft.insight,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
-    borderRadius: Radius.pill,
   },
-  scoreText: {
+  typePillSession: {
+    backgroundColor: Colors.semanticSoft.warning,
+  },
+  typePillText: {
+    ...Typography.micro,
+    color: Colors.text.secondary,
+  },
+  entryTitle: {
     ...Typography.captionEmphasis,
-    color: Colors.accent.primary,
+    color: Colors.text.secondary,
   },
   entryBody: {
     ...Typography.body,
     color: Colors.text.primary,
-    lineHeight: 22,
+    lineHeight: 24,
   },
   entryMeta: {
     ...Typography.caption,
     color: Colors.text.secondary,
+  },
+  detailOverlay: {
+    flex: 1,
+    backgroundColor: Colors.ui.overlay,
+  },
+  detailBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  detailKeyboardWrap: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  detailSheet: {
+    backgroundColor: Colors.bg.secondary,
+    borderTopLeftRadius: Radius.xxl,
+    borderTopRightRadius: Radius.xxl,
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  detailScroll: {
+    flexGrow: 0,
+  },
+  detailScrollContent: {
+    gap: Spacing.sm,
+    paddingBottom: Spacing.sm,
+  },
+  detailHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  detailHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  keyboardDoneBtn: {
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    backgroundColor: Colors.bg.tertiary,
+  },
+  keyboardDoneText: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.secondary,
+  },
+  detailTitle: {
+    ...Typography.title3,
+    color: Colors.text.primary,
+  },
+  detailDate: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
+  detailInput: {
+    minHeight: 160,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.bg.tertiary,
+    padding: Spacing.sm,
+    textAlignVertical: 'top',
+    ...Typography.body,
+    color: Colors.text.primary,
+  },
+  detailActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  detailBtn: {
+    flex: 1,
+  },
+  legacyHint: {
+    ...Typography.caption,
+    color: Colors.text.tertiary,
   },
 });

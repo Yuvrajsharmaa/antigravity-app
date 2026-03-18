@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing } from '../../core/theme';
 import { Button, Card } from '../../core/components';
+import { navigateBackSafe } from '../../navigation/safeBack';
 
 const CONTENT: Record<string, { title: string; body: string }> = {
   privacy_safety: {
@@ -39,7 +40,7 @@ export const InfoScreen: React.FC<{ navigation: any; route: any }> = ({ navigati
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.header}>
-        <Button title="Back" variant="ghost" fullWidth={false} onPress={() => navigation.goBack()} />
+        <Button title="Back" variant="ghost" fullWidth={false} onPress={() => navigateBackSafe(navigation, 'ProfileMain')} />
         <Text style={styles.title}>{content.title}</Text>
         <View style={{ width: 56 }} />
       </View>

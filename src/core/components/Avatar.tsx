@@ -17,6 +17,8 @@ export const Avatar: React.FC<AvatarProps> = ({
   size = 48,
   showOnline = false,
 }) => {
+  const palette = [Colors.bg.coralWash, Colors.bg.skyWash, Colors.bg.mintWash, Colors.semanticSoft.effort];
+  const textPalette = [Colors.accent.dark, Colors.semantic.insight, Colors.semantic.calm, Colors.semantic.effort];
   const initials = name
     ? name
         .split(' ')
@@ -25,6 +27,9 @@ export const Avatar: React.FC<AvatarProps> = ({
         .slice(0, 2)
         .toUpperCase()
     : '?';
+  const hashIndex = initials.charCodeAt(0) % palette.length;
+  const placeholderBg = palette[hashIndex];
+  const placeholderText = textPalette[hashIndex];
 
   return (
     <View style={[styles.container, { width: size, height: size, borderRadius: size / 2 }]}>
@@ -34,8 +39,22 @@ export const Avatar: React.FC<AvatarProps> = ({
           style={[styles.image, { width: size, height: size, borderRadius: size / 2 }]}
         />
       ) : (
-        <View style={[styles.placeholder, { width: size, height: size, borderRadius: size / 2 }]}>
-          <Text style={[styles.initials, { fontSize: size * 0.36 }]}>{initials}</Text>
+        <View
+          style={[
+            styles.placeholder,
+            {
+              width: size,
+              height: size,
+              borderRadius: size / 2,
+              backgroundColor: placeholderBg,
+            },
+          ]}
+        >
+          {initials !== '?' ? (
+            <Text style={[styles.initials, { fontSize: size * 0.36, color: placeholderText }]}>{initials}</Text>
+          ) : (
+            <Ionicons name="person-outline" size={size * 0.42} color={placeholderText} />
+          )}
         </View>
       )}
       {showOnline && (

@@ -1,13 +1,10 @@
-import { MatchedTherapist, MatchReasonChip, Therapist } from '../models/types';
+import {
+  MatchedTherapist,
+  MatchConfidenceLabel,
+  MatchReasonChip,
+  Therapist,
+} from '../models/types';
 import { supabase } from '../../services/supabase';
-
-interface MatchPreferences {
-  intent_tags?: string[] | null;
-  language?: string | null;
-  care_style_preference?: string | null;
-  session_preference?: 'chat' | 'video' | 'both';
-  time_preference?: 'morning' | 'afternoon' | 'evening' | 'flexible';
-}
 
 interface MatchOptions {
   filterTag?: string;
@@ -19,140 +16,140 @@ interface MatchResult {
   curatedTherapists: MatchedTherapist[];
 }
 
-const normalizeTag = (value: string) => value
-  .toLowerCase()
-  .replace(/[^a-z0-9\s-]/g, ' ')
-  .replace(/\s+/g, ' ')
-  .trim();
+type ClientMatchProfile = {
+  concern_tags: string[];
+  goal_tags: string[];
+  style_preference: string | null;
+  session_preference: 'chat' | 'video' | 'both';
+  time_preference: 'morning' | 'afternoon' | 'evening' | 'flexible';
+  language_preference: string | null;
+  availability_windows: Array<{ day?: string; from?: string; to?: string }>;
+  gender_preference: string | null;
+  modality_preferences: {
+    preferred?: string[];
+    avoid?: string[];
+  };
+  urgency_level: number;
+  first_session_sla_hours: number;
+  budget_min_inr: number | null;
+  budget_max_inr: number | null;
+};
 
-const normalizeWords = (value: string) => normalizeTag(value)
-  .split(/[\s-]+/)
-  .filter((item) => item.length > 2);
-
-const toTitle = (value: string) => value
-  .replace(/-/g, ' ')
-  .replace(/\b\w/g, (m) => m.toUpperCase());
-
-const getStyleKeywords = (style: string) => {
-  const key = style.toLowerCase();
-  if (key.includes('gentle')) return ['gentle', 'warm', 'calm', 'compassionate', 'nonjudgmental'];
-  if (key.includes('direct')) return ['direct', 'practical', 'focused', 'action', 'clear'];
-  if (key.includes('structured')) return ['structured', 'goal', 'plan', 'cbt', 'framework'];
-  return ['reflective', 'mindful', 'insight', 'explore', 'narrative'];
+type TherapistMatchProfile = {
+  therapist_id: string;
+  treats_tags: string[];
+  not_fit_tags: string[];
+  modalities: string[];
+  style_tags: string[];
+  population_tags: string[];
+  session_modes: string[];
+  languages: string[];
+  intake_windows: Array<{ day?: string; from?: string; to?: string }>;
+  new_client_capacity: number;
+  accepts_new_clients: boolean;
+  standout_quote?: string | null;
+  standout_prompt?: string | null;
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
-const computeIntentScore = (intentTags: string[], specialties: string[]) => {
-  if (!intentTags.length || !specialties.length) return 0.5;
+const normalizeTag = (value: string) => value
+  .toLowerCase()
+  .replace(/[^a-z0-9\s-]/g, ' ')
+  .replace(/\s+/g, '-')
+  .trim();
 
-  const specialtyWords = new Set(specialties.flatMap((item) => normalizeWords(item)));
-  let matched = 0;
-  for (const intent of intentTags) {
-    const intentWords = normalizeWords(intent);
-    const overlap = intentWords.some((word) => specialtyWords.has(word));
-    if (overlap) matched += 1;
-  }
+const normalizeWords = (value: string) => normalizeTag(value)
+  .split(/[-\s]+/)
+  .filter(Boolean);
 
-  return clamp(matched / intentTags.length, 0, 1);
+const uniqueList = (values: string[]) => Array.from(new Set(values.map(normalizeTag).filter(Boolean)));
+
+const scoreOverlap = (a: string[], b: string[]) => {
+  if (!a.length || !b.length) return 0;
+  const bSet = new Set(b);
+  const matched = a.filter((item) => bSet.has(item)).length;
+  return matched / a.length;
 };
 
-const computeStyleScore = (clientStyle: string | null | undefined, therapist: Therapist) => {
-  if (!clientStyle) return 0.65;
-  const content = `${therapist.headline || ''} ${therapist.bio || ''}`.toLowerCase();
-  const keywords = getStyleKeywords(clientStyle);
-  const hasSignal = keywords.some((keyword) => content.includes(keyword));
-  if (hasSignal) return 1;
-
-  const genericSignals = ['gentle', 'direct', 'structured', 'reflective', 'warm', 'mindful'];
-  const hasAnyStyleSignal = genericSignals.some((signal) => content.includes(signal));
-  return hasAnyStyleSignal ? 0.35 : 0.6;
-};
-
-const computeLanguageScore = (languagePref: string | null | undefined, therapistLanguages: string[]) => {
-  if (!languagePref || languagePref.toLowerCase() === 'both') return 1;
-  const normalizedPref = languagePref.toLowerCase();
-  const match = therapistLanguages.some((language) => language.toLowerCase() === normalizedPref);
-  return match ? 1 : 0.2;
-};
-
-const computeQualityScore = (therapist: Therapist) => {
-  const ratingScore = therapist.rating ? clamp(therapist.rating / 5, 0, 1) : 0.6;
-  const rank = typeof therapist.featured_rank === 'number' ? therapist.featured_rank : 99;
-  const featuredScore = 1 - clamp((rank - 1) / 99, 0, 1);
-  return clamp((ratingScore * 0.75) + (featuredScore * 0.25), 0, 1);
-};
-
-const computeTimePreferenceScore = (
-  timePreference: MatchPreferences['time_preference'],
-  slotStarts: string[],
-) => {
-  if (!slotStarts.length || !timePreference || timePreference === 'flexible') return 1;
+const scoreKeywordOverlap = (clientTags: string[], therapistTags: string[]) => {
+  if (!clientTags.length || !therapistTags.length) return 0;
+  const therapistWords = new Set(therapistTags.flatMap(normalizeWords));
   let matches = 0;
-  for (const startAt of slotStarts) {
-    const hour = new Date(startAt).getHours();
-    if (timePreference === 'morning' && hour < 12) matches += 1;
-    if (timePreference === 'afternoon' && hour >= 12 && hour < 17) matches += 1;
-    if (timePreference === 'evening' && hour >= 17) matches += 1;
+  for (const tag of clientTags) {
+    const words = normalizeWords(tag);
+    if (words.some((w) => therapistWords.has(w))) matches += 1;
   }
-  return clamp(matches / slotStarts.length, 0, 1);
+  return matches / clientTags.length;
+};
+
+const confidenceLabel = (score: number): MatchConfidenceLabel => {
+  if (score >= 82) return 'excellent';
+  if (score >= 68) return 'strong';
+  return 'good';
 };
 
 const formatAvailabilityChip = (nextAvailableAt: string | null) => {
   if (!nextAvailableAt) return null;
   const nextDate = new Date(nextAvailableAt);
-  const now = new Date();
-  const hoursAway = Math.round((nextDate.getTime() - now.getTime()) / (1000 * 60 * 60));
-  if (hoursAway <= 4) return 'Available soon';
-  if (hoursAway <= 12) return 'Available today';
-  return 'Available in 72h';
+  const hoursAway = Math.round((nextDate.getTime() - Date.now()) / (1000 * 60 * 60));
+  if (hoursAway <= 8) return 'Available soon';
+  if (hoursAway <= 24) return 'Available today';
+  return 'Available this week';
 };
 
-const toReasonChips = ({
-  therapist,
-  intentTags,
-  styleScore,
-  languageScore,
+const mapTherapist = (row: any): Therapist => {
+  const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+  return {
+    ...row,
+    display_name: profile?.display_name || profile?.first_name || 'Therapist',
+    avatar_url: profile?.avatar_url || null,
+    first_name: profile?.first_name || 'Therapist',
+  };
+};
+
+const defaultClientProfile = (): ClientMatchProfile => ({
+  concern_tags: [],
+  goal_tags: [],
+  style_preference: null,
+  session_preference: 'both',
+  time_preference: 'flexible',
+  language_preference: 'English',
+  availability_windows: [],
+  gender_preference: 'no_preference',
+  modality_preferences: {},
+  urgency_level: 2,
+  first_session_sla_hours: 72,
+  budget_min_inr: null,
+  budget_max_inr: null,
+});
+
+const reasonChipsFor = ({
+  concernOverlap,
+  styleFit,
+  languageFit,
   nextAvailableAt,
-  timePreference,
-  timeFitScore,
+  timeFit,
 }: {
-  therapist: Therapist;
-  intentTags: string[];
-  styleScore: number;
-  languageScore: number;
+  concernOverlap: number;
+  styleFit: number;
+  languageFit: number;
   nextAvailableAt: string | null;
-  timePreference?: MatchPreferences['time_preference'];
-  timeFitScore?: number;
+  timeFit: number;
 }): MatchReasonChip[] => {
   const chips: MatchReasonChip[] = [];
 
-  if (intentTags.length) {
-    const matchedSpecialties = therapist.specialties
-      .filter((specialty) => {
-        const specialtyWords = new Set(normalizeWords(specialty));
-        return intentTags.some((intent) => normalizeWords(intent).some((word) => specialtyWords.has(word)));
-      })
-      .slice(0, 2);
-
-    if (matchedSpecialties.length) {
-      chips.push({
-        id: 'intent',
-        label: `Works with ${matchedSpecialties.map((item) => toTitle(item)).join(' + ')}`,
-      });
-    }
+  if (concernOverlap >= 0.34) {
+    chips.push({ id: 'concern-fit', label: 'Works with your key concerns' });
   }
-
-  if (styleScore >= 0.9) {
-    chips.push({ id: 'style', label: 'Matches your care style' });
+  if (styleFit >= 0.75) {
+    chips.push({ id: 'style-fit', label: 'Matches your care style' });
   }
-
-  if (languageScore >= 1) {
-    chips.push({ id: 'language', label: `Language fit: ${therapist.languages.join(', ')}` });
+  if (languageFit >= 1) {
+    chips.push({ id: 'language-fit', label: 'Language comfort match' });
   }
-
-  if (timePreference && timePreference !== 'flexible' && (timeFitScore || 0) >= 0.6) {
-    chips.push({ id: 'time-fit', label: `Matches your ${timePreference} preference` });
+  if (timeFit >= 0.6) {
+    chips.push({ id: 'timing-fit', label: 'Fits your preferred timing' });
   }
 
   const availabilityChip = formatAvailabilityChip(nextAvailableAt);
@@ -161,29 +158,35 @@ const toReasonChips = ({
   }
 
   if (!chips.length) {
-    chips.push({ id: 'quality', label: 'Consistent profile and active schedule' });
+    chips.push({ id: 'reliable', label: 'Reliable profile and active schedule' });
   }
 
   return chips.slice(0, 3);
 };
 
-const mapTherapist = (row: any): Therapist => ({
-  ...row,
-  display_name: row.profiles?.display_name || row.profiles?.first_name || 'Therapist',
-  avatar_url: row.profiles?.avatar_url || null,
-  first_name: row.profiles?.first_name || 'Therapist',
-});
+const availabilityWindowScore = (
+  starts: string[],
+  preference: 'morning' | 'afternoon' | 'evening' | 'flexible' | undefined,
+) => {
+  if (!starts.length) return 0;
+  if (!preference || preference === 'flexible') return 1;
+  let matches = 0;
+  for (const startAt of starts) {
+    const hour = new Date(startAt).getHours();
+    if (preference === 'morning' && hour < 12) matches += 1;
+    if (preference === 'afternoon' && hour >= 12 && hour < 17) matches += 1;
+    if (preference === 'evening' && hour >= 17) matches += 1;
+  }
+  return clamp(matches / starts.length, 0, 1);
+};
 
-export const matchTherapistsForClient = async (
-  userId: string,
-  options?: MatchOptions,
-): Promise<MatchResult> => {
-  const rosterLimit = clamp(options?.rosterLimit || 16, 12, 20);
-  const filterTag = options?.filterTag && options.filterTag !== 'All'
-    ? normalizeTag(options.filterTag).replace(/\s+/g, '-')
-    : null;
-
-  const [{ data: prefData, error: prefError }, { data: therapistData, error: therapistError }] = await Promise.all([
+const loadClientMatchProfile = async (userId: string): Promise<ClientMatchProfile> => {
+  const [matchProfileRes, preferencesRes, profileRes] = await Promise.all([
+    supabase
+      .from('client_match_profile')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle(),
     supabase
       .from('user_preferences')
       .select('intent_tags, care_style_preference, session_preference, time_preference')
@@ -196,25 +199,53 @@ export const matchTherapistsForClient = async (
       .maybeSingle(),
   ]);
 
-  if (prefError) throw prefError;
-  if (therapistError) throw therapistError;
+  if (matchProfileRes.error) throw matchProfileRes.error;
+  if (preferencesRes.error) throw preferencesRes.error;
+  if (profileRes.error) throw profileRes.error;
 
-  const preferences: MatchPreferences = {
-    intent_tags: prefData?.intent_tags || [],
-    care_style_preference: prefData?.care_style_preference || null,
-    session_preference: prefData?.session_preference || 'both',
-    time_preference: prefData?.time_preference || 'evening',
-    language: therapistData?.language || 'English',
+  const fallback = defaultClientProfile();
+  const fromMatch = matchProfileRes.data as any;
+
+  return {
+    ...fallback,
+    concern_tags: uniqueList(fromMatch?.concern_tags || preferencesRes.data?.intent_tags || []),
+    goal_tags: uniqueList(fromMatch?.goal_tags || []),
+    style_preference: fromMatch?.style_preference || preferencesRes.data?.care_style_preference || null,
+    session_preference: fromMatch?.session_preference || preferencesRes.data?.session_preference || 'both',
+    time_preference: fromMatch?.time_preference || preferencesRes.data?.time_preference || 'flexible',
+    language_preference: fromMatch?.language_preference || profileRes.data?.language || 'English',
+    availability_windows: fromMatch?.availability_windows || [],
+    gender_preference: fromMatch?.gender_preference || 'no_preference',
+    modality_preferences: fromMatch?.modality_preferences || {},
+    urgency_level: fromMatch?.urgency_level || 2,
+    first_session_sla_hours: fromMatch?.first_session_sla_hours || 72,
+    budget_min_inr: fromMatch?.budget_min_inr || null,
+    budget_max_inr: fromMatch?.budget_max_inr || null,
   };
+};
 
-  const buildTherapistQuery = (verifiedOnly: boolean) => {
+export const matchTherapistsForClient = async (
+  userId: string,
+  options?: MatchOptions,
+): Promise<MatchResult> => {
+  const rosterLimit = clamp(options?.rosterLimit || 16, 12, 20);
+  const filterTag = options?.filterTag && options.filterTag !== 'All'
+    ? normalizeTag(options.filterTag)
+    : null;
+
+  const clientProfile = await loadClientMatchProfile(userId);
+
+  const buildTherapistsQuery = (verifiedOnly: boolean, activeOnly = true) => {
     let query = supabase
       .from('therapists')
       .select(`
         *,
-        profiles!inner (display_name, avatar_url, first_name)
-      `)
-      .eq('is_active', true);
+        profiles (display_name, avatar_url, first_name)
+      `);
+
+    if (activeOnly) {
+      query = query.eq('is_active', true);
+    }
 
     if (verifiedOnly) {
       query = query.eq('is_verified', true);
@@ -224,37 +255,88 @@ export const matchTherapistsForClient = async (
       query = query.contains('specialties', [filterTag]);
     }
 
-    return query
-      .order('featured_rank', { ascending: true })
-      .limit(80);
+    return query.order('featured_rank', { ascending: true }).limit(120);
   };
 
-  const { data: verifiedRows, error } = await buildTherapistQuery(true);
-  if (error) throw error;
+  const { data: verifiedRows, error: verifiedError } = await buildTherapistsQuery(true, true);
+  if (verifiedError) throw verifiedError;
 
   let therapistRows = verifiedRows || [];
   if (!therapistRows.length) {
-    const { data: fallbackRows, error: fallbackError } = await buildTherapistQuery(false);
+    const { data: fallbackRows, error: fallbackError } = await buildTherapistsQuery(false, true);
     if (fallbackError) throw fallbackError;
     therapistRows = fallbackRows || [];
   }
+  if (!therapistRows.length) {
+    const { data: inactiveFallbackRows, error: inactiveFallbackError } = await buildTherapistsQuery(false, false);
+    if (inactiveFallbackError) throw inactiveFallbackError;
+    therapistRows = inactiveFallbackRows || [];
+  }
+  if (!therapistRows.length) {
+    const { data: therapistProfiles, error: profileFallbackError } = await supabase
+      .from('profiles')
+      .select('id,display_name,first_name,avatar_url,language,role')
+      .in('role', ['therapist', 'admin'])
+      .neq('id', userId)
+      .limit(30);
+    if (profileFallbackError) throw profileFallbackError;
+    therapistRows = (therapistProfiles || []).map((profile: any, index: number) => ({
+      id: profile.id,
+      headline: 'Available for therapy sessions',
+      bio: 'Therapist profile is being completed.',
+      years_experience: 3,
+      languages: profile.language ? [profile.language] : ['English'],
+      specialties: ['general-support'],
+      session_fee_inr: 700,
+      chat_fee_inr: 500,
+      is_verified: profile.role === 'therapist' || profile.role === 'admin',
+      is_active: true,
+      featured_rank: index + 1,
+      rating: 4.5,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      profiles: {
+        display_name: profile.display_name,
+        first_name: profile.first_name,
+        avatar_url: profile.avatar_url,
+      },
+    }));
+  }
 
-  const mappedTherapists: Therapist[] = therapistRows.map(mapTherapist);
+  const mappedTherapists = therapistRows.map(mapTherapist);
   if (!mappedTherapists.length) {
     return { topMatches: [], curatedTherapists: [] };
   }
 
-  const curatedPool = mappedTherapists
-    .sort((a, b) => {
-      if (a.featured_rank !== b.featured_rank) return a.featured_rank - b.featured_rank;
-      if ((b.rating || 0) !== (a.rating || 0)) return (b.rating || 0) - (a.rating || 0);
-      return a.session_fee_inr - b.session_fee_inr;
-    })
-    .slice(0, Math.min(rosterLimit, mappedTherapists.length));
+  const therapistIds = mappedTherapists.map((item) => item.id);
 
-  const therapistIds = curatedPool.map((item) => item.id);
+  const { data: profileRows, error: profileError } = await supabase
+    .from('therapist_match_profile')
+    .select('*')
+    .in('therapist_id', therapistIds);
+  if (profileError) throw profileError;
+
+  const profileMap = new Map<string, TherapistMatchProfile>();
+  for (const row of profileRows || []) {
+    profileMap.set(row.therapist_id, {
+      therapist_id: row.therapist_id,
+      treats_tags: uniqueList(row.treats_tags || []),
+      not_fit_tags: uniqueList(row.not_fit_tags || []),
+      modalities: uniqueList(row.modalities || []),
+      style_tags: uniqueList(row.style_tags || []),
+      population_tags: uniqueList(row.population_tags || []),
+      session_modes: uniqueList(row.session_modes || ['video']),
+      languages: uniqueList(row.languages || ['english']),
+      intake_windows: row.intake_windows || [],
+      new_client_capacity: row.new_client_capacity || 5,
+      accepts_new_clients: row.accepts_new_clients !== false,
+      standout_quote: row.standout_quote || null,
+      standout_prompt: row.standout_prompt || null,
+    });
+  }
+
   const now = new Date();
-  const next72Hours = new Date(now.getTime() + (72 * 60 * 60 * 1000));
+  const nextWindow = new Date(now.getTime() + Math.max(24 * 30, clientProfile.first_session_sla_hours) * 60 * 60 * 1000);
 
   let slotQuery = supabase
     .from('availability_slots')
@@ -262,73 +344,185 @@ export const matchTherapistsForClient = async (
     .in('therapist_id', therapistIds)
     .eq('is_available', true)
     .gte('start_at', now.toISOString())
-    .lte('start_at', next72Hours.toISOString());
+    .lte('start_at', nextWindow.toISOString())
+    .order('start_at', { ascending: true });
 
-  if (preferences.session_preference && preferences.session_preference !== 'both') {
-    slotQuery = slotQuery.eq('slot_type', preferences.session_preference);
+  if (clientProfile.session_preference !== 'both') {
+    slotQuery = slotQuery.eq('slot_type', clientProfile.session_preference);
   }
 
-  const { data: slotRows, error: slotError } = await slotQuery.order('start_at', { ascending: true });
+  const { data: slots, error: slotsError } = await slotQuery;
+  if (slotsError) throw slotsError;
 
-  if (slotError) throw slotError;
-
-  const availabilityByTherapist = new Map<string, { count: number; nextAt: string | null; starts: string[] }>();
-  for (const slot of slotRows || []) {
-    const prev = availabilityByTherapist.get(slot.therapist_id) || { count: 0, nextAt: null, starts: [] };
-    availabilityByTherapist.set(slot.therapist_id, {
+  const availabilityMap = new Map<string, { count: number; nextAt: string | null; starts: string[] }>();
+  for (const slot of slots || []) {
+    const prev = availabilityMap.get(slot.therapist_id) || { count: 0, nextAt: null, starts: [] };
+    availabilityMap.set(slot.therapist_id, {
       count: prev.count + 1,
       nextAt: prev.nextAt || slot.start_at,
       starts: [...prev.starts, slot.start_at],
     });
   }
 
-  const intentTags = preferences.intent_tags || [];
-  const matched = curatedPool.map((therapist): MatchedTherapist => {
-    const styleScoreRaw = computeStyleScore(preferences.care_style_preference, therapist);
-    const intentScoreRaw = computeIntentScore(intentTags, therapist.specialties || []);
-    const languageScoreRaw = computeLanguageScore(preferences.language, therapist.languages || []);
+  const clientConcernTags = uniqueList(clientProfile.concern_tags);
+  const clientGoalTags = uniqueList(clientProfile.goal_tags);
+  const preferredModalities = uniqueList(clientProfile.modality_preferences?.preferred || []);
+  const avoidModalities = uniqueList(clientProfile.modality_preferences?.avoid || []);
 
-    const availabilityStats = availabilityByTherapist.get(therapist.id) || { count: 0, nextAt: null, starts: [] };
-    const slotCountScore = clamp(availabilityStats.count / 4, 0, 1);
-    const timeFitScore = computeTimePreferenceScore(preferences.time_preference, availabilityStats.starts);
-    const availabilityScoreRaw = preferences.time_preference && preferences.time_preference !== 'flexible'
-      ? clamp((slotCountScore * 0.7) + (timeFitScore * 0.3), 0, 1)
-      : slotCountScore;
-    const qualityScoreRaw = computeQualityScore(therapist);
+  const stageAFilters = mappedTherapists.filter((therapist) => {
+    const tProfile = profileMap.get(therapist.id);
 
-    const scoreBreakdown = {
-      intent: Math.round(intentScoreRaw * 35),
-      careStyle: Math.round(styleScoreRaw * 25),
-      language: Math.round(languageScoreRaw * 15),
-      availability: Math.round(availabilityScoreRaw * 15),
-      quality: Math.round(qualityScoreRaw * 10),
-      total: 0,
+    const notFitTags = uniqueList(tProfile?.not_fit_tags || []);
+    if (clientConcernTags.some((tag) => notFitTags.includes(tag))) {
+      return false;
+    }
+
+    if (tProfile && tProfile.accepts_new_clients === false) {
+      return false;
+    }
+
+    if (clientProfile.budget_max_inr && therapist.session_fee_inr > clientProfile.budget_max_inr) {
+      return false;
+    }
+
+    if (clientProfile.budget_min_inr && therapist.session_fee_inr < clientProfile.budget_min_inr) {
+      return false;
+    }
+
+    if (avoidModalities.length) {
+      const therapistModalities = uniqueList(tProfile?.modalities || []);
+      if (therapistModalities.some((item) => avoidModalities.includes(item))) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  const stageAOrFallback = stageAFilters.length
+    ? stageAFilters
+    : mappedTherapists.filter((therapist) => {
+        const tProfile = profileMap.get(therapist.id);
+        if (tProfile?.accepts_new_clients === false) return false;
+        const notFitTags = uniqueList(tProfile?.not_fit_tags || []);
+        if (clientConcernTags.some((tag) => notFitTags.includes(tag))) return false;
+        return true;
+      });
+
+  const rankingSource = stageAOrFallback.length ? stageAOrFallback : mappedTherapists;
+
+  const ranked = rankingSource.map((therapist): MatchedTherapist => {
+    const tProfile = profileMap.get(therapist.id);
+    const availability = availabilityMap.get(therapist.id) || { count: 0, nextAt: null, starts: [] };
+
+    const therapistTreats = uniqueList(tProfile?.treats_tags || therapist.specialties || []);
+    const concernOverlap = Math.max(
+      scoreOverlap(clientConcernTags, therapistTreats),
+      scoreKeywordOverlap(clientConcernTags, therapistTreats),
+    );
+
+    const therapistGoalSignals = uniqueList([...(tProfile?.population_tags || []), ...(tProfile?.modalities || [])]);
+    const goalFit = clientGoalTags.length ? scoreKeywordOverlap(clientGoalTags, therapistGoalSignals) : 0.65;
+
+    const styleTags = uniqueList(tProfile?.style_tags || []);
+    const styleFit = clientProfile.style_preference
+      ? Math.max(
+          scoreKeywordOverlap([clientProfile.style_preference], styleTags),
+          scoreKeywordOverlap([clientProfile.style_preference], [therapist.headline || '', therapist.bio || '']),
+        )
+      : 0.65;
+
+    const therapistLanguages = uniqueList(tProfile?.languages || therapist.languages || []);
+    const languageFit = !clientProfile.language_preference || clientProfile.language_preference.toLowerCase() === 'both'
+      ? 1
+      : therapistLanguages.length === 0
+        ? 0.75
+        : therapistLanguages.includes(normalizeTag(clientProfile.language_preference))
+        ? 1
+        : 0.4;
+
+    const therapistSessionModes = uniqueList(tProfile?.session_modes || ['video', 'chat']);
+    const sessionModeFit = clientProfile.session_preference === 'both'
+      ? 1
+      : therapistSessionModes.includes(clientProfile.session_preference)
+        ? 1
+        : 0.45;
+
+    const timeFit = availabilityWindowScore(
+      availability.starts,
+      clientProfile.time_preference,
+    );
+
+    const slotDensityFit = clamp(availability.count / 4, 0, 1);
+    const logisticsFit = clamp((timeFit * 0.35) + (slotDensityFit * 0.45) + (sessionModeFit * 0.2), 0, 1);
+
+    const qualityBase = clamp((therapist.rating || 3.9) / 5, 0, 1);
+    const reliabilityFit = clamp((qualityBase * 0.8) + (1 - clamp((therapist.featured_rank - 1) / 99, 0, 1)) * 0.2, 0, 1);
+
+    const preferredModalityFit = preferredModalities.length
+      ? scoreKeywordOverlap(preferredModalities, uniqueList(tProfile?.modalities || []))
+      : 0.65;
+
+    const capacity = tProfile?.new_client_capacity ?? 5;
+    const capacityFit = clamp(capacity / 8, 0.35, 1);
+
+    const weighted = {
+      concern: Math.round(concernOverlap * 30),
+      goal: Math.round(goalFit * 15),
+      style: Math.round(styleFit * 15),
+      logistics: Math.round(logisticsFit * 20),
+      quality: Math.round(reliabilityFit * 10),
+      modality: Math.round(preferredModalityFit * 5),
+      capacity: Math.round(capacityFit * 5),
     };
-    scoreBreakdown.total = scoreBreakdown.intent
-      + scoreBreakdown.careStyle
-      + scoreBreakdown.language
-      + scoreBreakdown.availability
-      + scoreBreakdown.quality;
+
+    const totalScore = weighted.concern
+      + weighted.goal
+      + weighted.style
+      + weighted.logistics
+      + weighted.quality
+      + weighted.modality
+      + weighted.capacity;
+
+    const adjustedForMarketplace = totalScore - Math.round((1 - capacityFit) * 6);
+    const finalScore = clamp(adjustedForMarketplace, 0, 100);
 
     return {
-      therapist,
-      score: scoreBreakdown.total,
-      scoreBreakdown,
-      reasonChips: toReasonChips({
-        therapist,
-        intentTags,
-        styleScore: styleScoreRaw,
-        languageScore: languageScoreRaw,
-        nextAvailableAt: availabilityStats.nextAt,
-        timePreference: preferences.time_preference,
-        timeFitScore,
+      therapist: {
+        ...therapist,
+        standout_quote: tProfile?.standout_quote || null,
+        standout_prompt: tProfile?.standout_prompt || null,
+      },
+      score: finalScore,
+      scoreBreakdown: {
+        intent: weighted.concern + weighted.goal,
+        careStyle: weighted.style + weighted.modality,
+        language: Math.round(languageFit * 15),
+        availability: weighted.logistics,
+        quality: weighted.quality + weighted.capacity,
+        total: finalScore,
+      },
+      reasonChips: reasonChipsFor({
+        concernOverlap,
+        styleFit,
+        languageFit,
+        nextAvailableAt: availability.nextAt,
+        timeFit,
       }),
-      nextAvailableAt: availabilityStats.nextAt,
-      availableSlots72h: availabilityStats.count,
+      confidenceLabel: confidenceLabel(finalScore),
+      fitHighlights: [
+        `${Math.round(concernOverlap * 100)}% concern fit`,
+        `${Math.round(styleFit * 100)}% style fit`,
+        availability.nextAt
+          ? `Next slot ${new Date(availability.nextAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
+          : 'Schedule opening soon',
+      ],
+      nextAvailableAt: availability.nextAt,
+      availableSlots72h: availability.count,
     };
   });
 
-  matched.sort((a, b) => {
+  ranked.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     if (a.therapist.featured_rank !== b.therapist.featured_rank) {
       return a.therapist.featured_rank - b.therapist.featured_rank;
@@ -336,8 +530,32 @@ export const matchTherapistsForClient = async (
     return (b.therapist.rating || 0) - (a.therapist.rating || 0);
   });
 
+  const curatedTherapists = ranked.slice(0, Math.min(ranked.length, rosterLimit));
+  const topMatches = curatedTherapists.slice(0, 3);
+
+  if (curatedTherapists.length) {
+    void (async () => {
+      try {
+        await supabase
+          .from('match_events')
+          .insert(
+            curatedTherapists.slice(0, 10).map((item, index) => ({
+              user_id: userId,
+              therapist_id: item.therapist.id,
+              match_score: item.score,
+              rank_position: index + 1,
+              score_breakdown: item.scoreBreakdown,
+              model_version: 'v3',
+            })),
+          );
+      } catch {
+        // Match event logging is best-effort and should not block UI ranking.
+      }
+    })();
+  }
+
   return {
-    topMatches: matched.slice(0, 3),
-    curatedTherapists: matched,
+    topMatches,
+    curatedTherapists,
   };
 };
