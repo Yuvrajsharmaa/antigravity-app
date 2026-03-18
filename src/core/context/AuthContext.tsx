@@ -48,7 +48,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
+      if (error) {
+        // Defensive: if storage/session is corrupted, fall back to signed-out cleanly.
+        try {
+          await supabase.auth.signOut({ scope: 'local' });
+        } catch {
+          // Best effort.
+        }
+        setSession(null);
+        setProfile(null);
+        setTherapistApplication(null);
+        setIsTherapistMode(false);
+        setIsLoading(false);
+        return;
+      }
+
       setSession(session);
       if (session?.user) {
         fetchProfile(session.user.id);
