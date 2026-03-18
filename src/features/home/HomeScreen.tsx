@@ -347,6 +347,16 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                   {`Care ${weeklyCareCount}/7 · Journal ${weeklyJournalCount}/7`}
                 </Text>
               </View>
+              <View style={styles.weeklyLegendRow}>
+                <View style={styles.weeklyLegendItem}>
+                  <View style={[styles.weeklyLegendDot, styles.weeklyDayDotDone]} />
+                  <Text style={styles.weeklyLegendText}>Care</Text>
+                </View>
+                <View style={styles.weeklyLegendItem}>
+                  <View style={[styles.weeklyLegendDot, styles.weeklyDayDotJournalDone]} />
+                  <Text style={styles.weeklyLegendText}>Journal</Text>
+                </View>
+              </View>
               <View style={styles.weeklyStrip}>
                 {weeklyCalendar.map((day) => (
                   <View key={day.dateKey} style={styles.weeklyDay}>
@@ -677,6 +687,28 @@ const styles = StyleSheet.create({
   weeklyProgressText: {
     ...Typography.caption,
     color: Colors.text.secondary,
+  },
+  weeklyLegendRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    alignItems: 'center',
+  },
+  weeklyLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  weeklyLegendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: Colors.bg.secondary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.medium,
+  },
+  weeklyLegendText: {
+    ...Typography.micro,
+    color: Colors.text.tertiary,
   },
   weeklyStrip: {
     flexDirection: 'row',

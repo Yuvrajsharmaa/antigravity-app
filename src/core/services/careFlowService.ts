@@ -784,6 +784,27 @@ export const createTherapistMatchRequest = async ({
   therapistId: string;
   introQuestion: string;
 }) => {
+  const normalizeMatchRequestError = (err: any) => {
+    const code = `${err?.code || ''}`.toUpperCase();
+    const message = `${err?.message || ''}`.toLowerCase();
+
+    if (code === '42P01' || message.includes('therapist_match_requests')) {
+      return new Error(
+        'Match requests backend is missing. Apply Supabase migration 20260314110000_matching_requests_walkthrough.sql and try again.',
+      );
+    }
+    if (code === '42501' || message.includes('row-level security') || message.includes('permission denied')) {
+      return new Error(
+        'Permission denied sending intro. Ensure you are signed in as the client and the therapist_match_requests RLS policies are applied.',
+      );
+    }
+    if (message.includes('jwt') || message.includes('refresh token') || message.includes('not authenticated')) {
+      return new Error('Session expired. Please sign in again and retry.');
+    }
+
+    return err instanceof Error ? err : new Error('Unable to send intro right now. Please try again.');
+  };
+
   const trimmedQuestion = introQuestion.trim();
   if (!trimmedQuestion.length) {
     throw new Error('Please add a short intro question.');
@@ -799,7 +820,7 @@ export const createTherapistMatchRequest = async ({
     .eq('status', 'pending')
     .maybeSingle();
 
-  if (existingError) throw existingError;
+  if (existingError) throw normalizeMatchRequestError(existingError);
 
   if (existingPending?.id) {
     const { error: updateError } = await supabase
@@ -809,7 +830,7 @@ export const createTherapistMatchRequest = async ({
         updated_at: now,
       })
       .eq('id', existingPending.id);
-    if (updateError) throw updateError;
+    if (updateError) throw normalizeMatchRequestError(updateError);
     return existingPending.id;
   }
 
@@ -825,7 +846,29 @@ export const createTherapistMatchRequest = async ({
     .select('id')
     .single();
 
-  if (error) throw error;
+  if (error) {
+    const code = `${error?.code || ''}`.toUpperCase();
+    // Race / double-tap safety: if another pending row was created between the select and insert,
+    // fall back to "update existing" instead of failing.
+    if (code === '23505') {
+      const { data: pendingAgain } = await supabase
+        .from('therapist_match_requests')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('therapist_id', therapistId)
+        .eq('status', 'pending')
+        .maybeSingle();
+      if (pendingAgain?.id) {
+        const { error: updateError } = await supabase
+          .from('therapist_match_requests')
+          .update({ intro_question: trimmedQuestion, updated_at: now })
+          .eq('id', pendingAgain.id);
+        if (updateError) throw normalizeMatchRequestError(updateError);
+        return pendingAgain.id;
+      }
+    }
+    throw normalizeMatchRequestError(error);
+  }
   return data.id as string;
 };
 

@@ -207,6 +207,7 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
   const [introQuestion, setIntroQuestion] = useState('');
   const [introError, setIntroError] = useState<string | null>(null);
   const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [resultsBanner, setResultsBanner] = useState<string | null>(null);
 
   const [modalState, setModalState] = useState<{
     visible: boolean;
@@ -459,6 +460,12 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
     setIntroError(null);
   };
 
+  useEffect(() => {
+    if (!resultsBanner) return;
+    const t = setTimeout(() => setResultsBanner(null), 3200);
+    return () => clearTimeout(t);
+  }, [resultsBanner]);
+
   const submitIntroQuestion = async () => {
     if (!user?.id || !introTarget) return;
     const text = introQuestion.trim();
@@ -479,9 +486,10 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
         ...prev,
         [introTarget.therapist.id]: 'pending',
       }));
+      const targetName = introTarget.therapist.display_name;
       dismissIntro();
       setIntroQuestion('');
-      showModal('success', 'Intro sent', `Your intro message was sent to ${introTarget.therapist.display_name}.`);
+      setResultsBanner(`Intro sent to ${targetName}. You’ll see “Pending” until they respond.`);
     } catch (err: any) {
       setIntroError(err?.message || 'Unable to send right now. Please try again.');
     } finally {
@@ -934,6 +942,16 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
             </TouchableOpacity>
           </View>
 
+          {resultsBanner ? (
+            <Card style={styles.resultsBannerCard}>
+              <Ionicons name="checkmark-circle-outline" size={18} color={Colors.status.success} />
+              <Text style={styles.resultsBannerText}>{resultsBanner}</Text>
+              <TouchableOpacity onPress={() => setResultsBanner(null)} accessibilityRole="button" accessibilityLabel="Dismiss banner">
+                <Ionicons name="close" size={18} color={Colors.text.tertiary} />
+              </TouchableOpacity>
+            </Card>
+          ) : null}
+
           {resultsLoading ? (
             <LoadingState message="Loading matches..." style={styles.screenState} />
           ) : resultsError ? (
@@ -991,6 +1009,7 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
           >
             <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
               <View style={styles.introSheet}>
+                <View style={styles.introHandle} />
                 <View style={styles.introHeader}>
                   <Text style={styles.introTitle}>
                     Message {introTarget?.therapist.display_name || 'therapist'}
@@ -1229,6 +1248,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.sm,
   },
+  resultsBannerCard: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.status.successSoft,
+    borderColor: Colors.status.success + '35',
+  },
+  resultsBannerText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    flex: 1,
+    lineHeight: 18,
+  },
   lockedInfoTextWrap: {
     flex: 1,
   },
@@ -1460,13 +1494,22 @@ const styles = StyleSheet.create({
   introSheet: {
     borderTopLeftRadius: Radius.xxl,
     borderTopRightRadius: Radius.xxl,
-    backgroundColor: 'rgba(255,255,255,0.96)',
+    backgroundColor: Colors.bg.primary,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.lg,
     paddingBottom: Spacing.xl,
     gap: Spacing.sm,
+  },
+  introHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 5,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.stroke.soft,
+    marginTop: -Spacing.xs,
+    marginBottom: Spacing.xs,
   },
   introHeader: {
     flexDirection: 'row',

@@ -67,7 +67,7 @@ const moodText = (entry: JournalRow) => {
 export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
-  const { height: viewportHeight } = useWindowDimensions();
+  const { height: viewportHeight, width: viewportWidth } = useWindowDimensions();
   const tabSafeBottomPadding = useTabSafeBottomPadding(Spacing.xxl);
 
   const [entries, setEntries] = useState<JournalRow[]>([]);
@@ -106,6 +106,16 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
   }, [entries, filter, selectedDateKey]);
 
   const { month: careMonth } = useCareCalendar(user?.id, calendarMonth);
+  const calendarCellSize = useMemo(() => {
+    // Size cells based on real viewport width so the calendar feels "large" and readable.
+    // Assumes calendar card uses: marginHorizontal=Spacing.xl, padding=Spacing.lg.
+    const cardInnerWidth = Math.max(0, viewportWidth - Spacing.xl * 2 - Spacing.lg * 2);
+    const gap = Spacing.xs;
+    const totalGaps = gap * 6;
+    const raw = Math.floor((cardInnerWidth - totalGaps) / 7);
+    return Math.max(38, Math.min(48, raw));
+  }, [viewportWidth]);
+
   const calendarCells = useMemo(() => {
     if (!careMonth) return [];
     const first = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
@@ -444,20 +454,26 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
 
             <View style={styles.calendarWeekRow}>
               {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((label) => (
-                <Text key={label} style={styles.calendarWeekLabel}>{label}</Text>
+                <Text key={label} style={[styles.calendarWeekLabel, { width: calendarCellSize }]}>{label}</Text>
               ))}
             </View>
 
             <View style={styles.calendarGrid}>
               {calendarCells.map((cell) => {
                 if (cell.kind === 'blank') {
-                  return <View key={cell.key} style={styles.calendarBlank} />;
+                  return (
+                    <View
+                      key={cell.key}
+                      style={[styles.calendarBlank, { width: calendarCellSize, height: calendarCellSize + 4 }]}
+                    />
+                  );
                 }
                 return (
                   <TouchableOpacity
                     key={cell.key}
                     style={[
                       styles.calendarCell,
+                      { width: calendarCellSize, height: calendarCellSize + 4 },
                       cell.isToday && styles.calendarCellToday,
                       cell.isSelected && styles.calendarCellSelected,
                     ]}

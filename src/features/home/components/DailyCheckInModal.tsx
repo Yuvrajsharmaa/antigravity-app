@@ -101,8 +101,10 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
   const sheetMaxHeight = useMemo(() => {
     const keyboardInset = Math.max(0, effectiveKeyboardHeight - Spacing.sm);
     const available = viewportHeight - insets.top - Spacing.lg - keyboardInset;
-    const preferred = Math.min(viewportHeight * 0.86, available);
-    return Math.max(360, preferred);
+    // Keep this feeling like a full-height sheet (not a small floating card), while still
+    // respecting top insets + keyboard.
+    const preferred = viewportHeight * 0.92;
+    return Math.max(360, Math.min(available, preferred));
   }, [effectiveKeyboardHeight, insets.top, viewportHeight]);
 
   const breakdown = useMemo(() => {
@@ -405,6 +407,7 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
                   },
                 ]}
               >
+                <View style={styles.sheetHandle} />
                 <View style={styles.header}>
                   <Text style={styles.title}>Daily check-in</Text>
                   <TouchableOpacity
@@ -651,17 +654,30 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   keyboardWrap: {
+    flex: 1,
     width: '100%',
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: 'rgba(255,255,255,0.96)',
+    // Solid background avoids the sheet feeling "small" by showing the tab bar behind it.
+    backgroundColor: Colors.bg.primary,
     borderTopLeftRadius: Radius.xxl,
     borderTopRightRadius: Radius.xxl,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.lg,
     minHeight: 420,
     gap: Spacing.sm,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 5,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.stroke.soft,
+    marginTop: -Spacing.xs,
+    marginBottom: Spacing.xs,
   },
   header: {
     flexDirection: 'row',
@@ -857,10 +873,12 @@ const styles = StyleSheet.create({
   },
   breakdownSheet: {
     maxHeight: '78%',
-    backgroundColor: 'rgba(255,255,255,0.96)',
+    backgroundColor: Colors.bg.primary,
     borderTopLeftRadius: Radius.xxl,
     borderTopRightRadius: Radius.xxl,
     padding: Spacing.xl,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
   },
   breakdownHeader: {
     flexDirection: 'row',

@@ -326,6 +326,15 @@ export const TherapistDashboardScreen: React.FC = () => {
     navigation.navigate('SessionsTab', { initialTab: 'upcoming' });
   };
 
+  const goToMessages = () => {
+    const parentNav = navigation.getParent();
+    if (parentNav) {
+      parentNav.navigate('MessagesTab', { screen: 'MessagesList' });
+      return;
+    }
+    navigation.navigate('MessagesTab', { screen: 'MessagesList' });
+  };
+
   const canJoin = (item: UpcomingSession) => {
     if (item.sessionType !== 'video') return false;
     if (item.bookingStatus !== 'confirmed') return false;
@@ -479,7 +488,9 @@ export const TherapistDashboardScreen: React.FC = () => {
     return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
 
-  const visibleAttentionClients = clients
+  // Attention queue should only show clients that need a nudge, not every conversation.
+  const attentionCandidates = clients.filter((item) => item.riskLevel !== 'stable');
+  const visibleAttentionClients = attentionCandidates
     .filter((item) => !dismissedClientIds.includes(item.id))
     .slice(0, 8);
 
@@ -540,16 +551,16 @@ export const TherapistDashboardScreen: React.FC = () => {
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Attention queue</Text>
-          <TouchableOpacity onPress={goToSessions}>
-            <Text style={styles.sectionAction}>View all</Text>
+          <TouchableOpacity onPress={goToMessages}>
+            <Text style={styles.sectionAction}>Messages</Text>
           </TouchableOpacity>
         </View>
 
         {visibleAttentionClients.length === 0 ? (
           <EmptyState
-            icon="people-outline"
-            title="No attention items"
-            message="Client signals that need action will appear here."
+            icon="shield-checkmark-outline"
+            title="You’re caught up"
+            message={ready ? 'Clients who need a check-in will appear here.' : 'Finish setup to see CareScore alerts.'}
           />
         ) : (
           <ScrollView
@@ -588,53 +599,40 @@ export const TherapistDashboardScreen: React.FC = () => {
                     <Ionicons name="close" size={18} color={Colors.text.tertiary} />
                   </TouchableOpacity>
                 </View>
+                <View style={styles.reasonChipRow}>
+                  {client.reasonChips.map((chip) => (
+                    <View key={chip} style={styles.reasonChip}>
+                      <Text style={styles.reasonChipText}>{chip}</Text>
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.promptCard}>
+                  <Ionicons name="sparkles-outline" size={16} color={Colors.accent.primary} />
+                  <Text style={styles.promptText}>{client.openingPrompt}</Text>
+                </View>
                 {client.hasRecentNudge ? (
                   <View style={styles.nudgeFlag}>
                     <Text style={styles.nudgeFlagText}>Check-in sent (last 24h)</Text>
                   </View>
                 ) : null}
                 <View style={styles.actionButtons}>
-                  {client.riskLevel !== 'stable' ? (
-                    <>
-                      <Button
-                        title="Open chat"
-                        variant="primary"
-                        fullWidth={false}
-                        style={{ flex: 1 }}
-                        icon={<Ionicons name="chatbubble-ellipses-outline" size={18} color={Colors.text.inverse} />}
-                        onPress={() => openChatForClient(client)}
-                      />
-                      <Button
-                        title={client.hasRecentNudge ? 'Check-in sent' : 'Send check-in'}
-                        variant="secondary"
-                        disabled={client.hasRecentNudge}
-                        fullWidth={false}
-                        style={{ flex: 1 }}
-                        icon={<Ionicons name="paper-plane-outline" size={16} color={Colors.text.primary} />}
-                        onPress={() => handleSendNudge(client.name, client.conversationId, client.alertMsg)}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <Button
-                        title={client.hasRecentNudge ? 'Check-in sent' : 'Send check-in'}
-                        variant="primary"
-                        disabled={client.hasRecentNudge}
-                        fullWidth={false}
-                        style={{ flex: 1 }}
-                        icon={<Ionicons name="paper-plane-outline" size={16} color={Colors.text.inverse} />}
-                        onPress={() => handleSendNudge(client.name, client.conversationId, client.alertMsg)}
-                      />
-                      <Button
-                        title="Open chat"
-                        variant="secondary"
-                        fullWidth={false}
-                        style={{ flex: 1 }}
-                        icon={<Ionicons name="chatbubble-ellipses-outline" size={18} color={Colors.text.primary} />}
-                        onPress={() => openChatForClient(client)}
-                      />
-                    </>
-                  )}
+                  <Button
+                    title="Open chat"
+                    variant="primary"
+                    fullWidth={false}
+                    style={{ flex: 1 }}
+                    icon={<Ionicons name="chatbubble-ellipses-outline" size={18} color={Colors.text.inverse} />}
+                    onPress={() => openChatForClient(client)}
+                  />
+                  <Button
+                    title={client.hasRecentNudge ? 'Check-in sent' : 'Send check-in'}
+                    variant="secondary"
+                    disabled={client.hasRecentNudge}
+                    fullWidth={false}
+                    style={{ flex: 1 }}
+                    icon={<Ionicons name="paper-plane-outline" size={16} color={Colors.text.primary} />}
+                    onPress={() => handleSendNudge(client.name, client.conversationId, client.alertMsg)}
+                  />
                 </View>
               </Card>
             ))}

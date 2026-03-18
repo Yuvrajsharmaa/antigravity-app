@@ -176,12 +176,12 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
     const isSwitch = Boolean(activeLock?.therapist_id && activeLock.therapist_id !== therapist.id);
     showModal(
       'confirm',
-      isSwitch ? 'Switch primary therapist?' : 'Lock this therapist?',
+      isSwitch ? 'Switch primary therapist?' : 'Set as primary therapist?',
       isSwitch
-        ? `${activeLock?.therapist_name} will be replaced as your primary therapist.`
-        : `${therapist.display_name} will become your primary therapist.`,
+        ? `${activeLock?.therapist_name} will be replaced as your primary therapist. You can switch again anytime.`
+        : `${therapist.display_name} will become your primary therapist. You can switch anytime.`,
       {
-        label: isSwitch ? 'Switch' : 'Lock therapist',
+        label: isSwitch ? 'Switch primary' : 'Set as primary',
         onPress: async () => {
           setLockBusy(true);
           try {
@@ -193,7 +193,7 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
             });
             setModalState((prev) => ({ ...prev, visible: false }));
             await refreshLockState();
-            showModal('success', 'Saved', `${therapist.display_name} is now your primary therapist.`);
+            showModal('success', 'Primary therapist updated', `${therapist.display_name} is now set as your primary therapist.`);
           } catch (error: any) {
             showModal('error', 'Unable to update', error.message || 'Please try again.');
           } finally {
@@ -213,7 +213,7 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
     showModal(
       'confirm',
       'Keep exploring?',
-      'This therapist will no longer be marked as primary.',
+      'You can keep browsing matches. Your primary therapist will be cleared.',
       {
         label: 'Keep exploring',
         onPress: async () => {
@@ -286,11 +286,11 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
 
         {/* About */}
         <Card style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Therapist preference</Text>
+            <Text style={styles.sectionTitle}>Primary therapist</Text>
             {activeLock?.therapist_id === therapist.id ? (
               <>
                 <Text style={styles.lockTitle}>Primary therapist set</Text>
-                <Text style={styles.lockMeta}>You are currently locked with {therapist.display_name}.</Text>
+                <Text style={styles.lockMeta}>Your primary therapist is {therapist.display_name}.</Text>
                 <View style={styles.lockActions}>
                   <Button
                     title="Keep exploring"
@@ -314,13 +314,13 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
               <>
                 {activeLock ? (
                   <Text style={styles.lockMeta}>
-                    You are currently locked with {activeLock.therapist_name}. Switch if this therapist feels like a better fit.
+                    Your primary therapist is {activeLock.therapist_name}. Switch if this therapist feels like a better fit.
                   </Text>
                 ) : (
                   <Text style={styles.lockMeta}>No therapist is locked yet. You can keep exploring or lock when ready.</Text>
                 )}
                 <Button
-                  title={activeLock ? 'Switch to this therapist' : 'Lock this therapist'}
+                  title={activeLock ? 'Switch primary therapist' : 'Set as primary'}
                   fullWidth={false}
                   onPress={lockTherapist}
                   loading={lockBusy}
