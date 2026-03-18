@@ -360,6 +360,23 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
     </TouchableOpacity>
   );
 
+  const renderHistoryEmpty = () => {
+    if (loading) {
+      return <LoadingState message="Loading journal..." style={styles.stateSpacing} />;
+    }
+    if (error) {
+      return <ErrorState message={error} onRetry={loadJournal} style={styles.stateSpacing} />;
+    }
+    return (
+      <EmptyState
+        icon="journal-outline"
+        title="No journal entries yet"
+        message="Your entries will appear here once you save your first note."
+        style={styles.stateSpacing}
+      />
+    );
+  };
+
   const detailSheetMaxHeight = Math.max(
     360,
     Math.min(
@@ -441,102 +458,95 @@ export const JournalScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
         </>
       ) : (
         <>
-          <Card style={styles.calendarCard}>
-            <View style={styles.calendarHeader}>
-              <TouchableOpacity style={styles.calendarNavBtn} onPress={goPrevMonth} accessibilityRole="button">
-                <Ionicons name="chevron-back" size={18} color={Colors.text.primary} />
-              </TouchableOpacity>
-              <Text style={styles.calendarMonthLabel}>{careMonth?.monthLabel || 'Calendar'}</Text>
-              <TouchableOpacity style={styles.calendarNavBtn} onPress={goNextMonth} accessibilityRole="button">
-                <Ionicons name="chevron-forward" size={18} color={Colors.text.primary} />
-              </TouchableOpacity>
-            </View>
+          <FlatList
+            style={styles.historyList}
+            data={!loading && !error ? filteredEntries : []}
+            keyExtractor={(item) => item.id}
+            renderItem={renderEntry}
+            ListHeaderComponent={(
+              <>
+                <Card style={styles.calendarCard}>
+                  <View style={styles.calendarHeader}>
+                    <TouchableOpacity style={styles.calendarNavBtn} onPress={goPrevMonth} accessibilityRole="button">
+                      <Ionicons name="chevron-back" size={18} color={Colors.text.primary} />
+                    </TouchableOpacity>
+                    <Text style={styles.calendarMonthLabel}>{careMonth?.monthLabel || 'Calendar'}</Text>
+                    <TouchableOpacity style={styles.calendarNavBtn} onPress={goNextMonth} accessibilityRole="button">
+                      <Ionicons name="chevron-forward" size={18} color={Colors.text.primary} />
+                    </TouchableOpacity>
+                  </View>
 
-            <View style={styles.calendarWeekRow}>
-              {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((label) => (
-                <Text key={label} style={[styles.calendarWeekLabel, { width: calendarCellSize }]}>{label}</Text>
-              ))}
-            </View>
+                  <View style={styles.calendarWeekRow}>
+                    {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((label, idx) => (
+                      <Text key={`dow-${idx}`} style={[styles.calendarWeekLabel, { width: calendarCellSize }]}>{label}</Text>
+                    ))}
+                  </View>
 
-            <View style={styles.calendarGrid}>
-              {calendarCells.map((cell) => {
-                if (cell.kind === 'blank') {
-                  return (
-                    <View
-                      key={cell.key}
-                      style={[styles.calendarBlank, { width: calendarCellSize, height: calendarCellSize + 4 }]}
+                  <View style={styles.calendarGrid}>
+                    {calendarCells.map((cell) => {
+                      if (cell.kind === 'blank') {
+                        return (
+                          <View
+                            key={cell.key}
+                            style={[styles.calendarBlank, { width: calendarCellSize, height: calendarCellSize + 4 }]}
+                          />
+                        );
+                      }
+                      return (
+                        <TouchableOpacity
+                          key={cell.key}
+                          style={[
+                            styles.calendarCell,
+                            { width: calendarCellSize, height: calendarCellSize + 4 },
+                            cell.isToday && styles.calendarCellToday,
+                            cell.isSelected && styles.calendarCellSelected,
+                          ]}
+                          onPress={() => setSelectedDateKey((prev) => (prev === cell.dateKey ? null : cell.dateKey))}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Select ${cell.dateKey}`}
+                        >
+                          <Text style={styles.calendarDayText}>{cell.dayNumber}</Text>
+                          {cell.hasJournal ? <View style={styles.calendarDot} /> : <View style={styles.calendarDotSpacer} />}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <View style={styles.calendarFooterRow}>
+                    <View style={styles.calendarLegend}>
+                      <View style={styles.calendarDotLegend} />
+                      <Text style={styles.calendarFooterHint}>Journal entry</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.calendarClearBtn}
+                      onPress={() => setSelectedDateKey(null)}
+                      disabled={!selectedDateKey}
+                    >
+                      <Text style={[styles.calendarClearText, !selectedDateKey && styles.calendarClearTextDisabled]}>
+                        Clear day
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </Card>
+
+                <View style={styles.filterRow}>
+                  {FILTER_OPTIONS.map((option) => (
+                    <PillChip
+                      key={option.value}
+                      label={option.label}
+                      selected={filter === option.value}
+                      onPress={() => setFilter(option.value)}
                     />
-                  );
-                }
-                return (
-                  <TouchableOpacity
-                    key={cell.key}
-                    style={[
-                      styles.calendarCell,
-                      { width: calendarCellSize, height: calendarCellSize + 4 },
-                      cell.isToday && styles.calendarCellToday,
-                      cell.isSelected && styles.calendarCellSelected,
-                    ]}
-                    onPress={() => setSelectedDateKey((prev) => (prev === cell.dateKey ? null : cell.dateKey))}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Select ${cell.dateKey}`}
-                  >
-                    <Text style={styles.calendarDayText}>{cell.dayNumber}</Text>
-                    {cell.hasJournal ? <View style={styles.calendarDot} /> : <View style={styles.calendarDotSpacer} />}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <View style={styles.calendarFooterRow}>
-              <View style={styles.calendarLegend}>
-                <View style={styles.calendarDotLegend} />
-                <Text style={styles.calendarFooterHint}>Journal entry</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.calendarClearBtn}
-                onPress={() => setSelectedDateKey(null)}
-                disabled={!selectedDateKey}
-              >
-                <Text style={[styles.calendarClearText, !selectedDateKey && styles.calendarClearTextDisabled]}>
-                  Clear day
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </Card>
-
-          <View style={styles.filterRow}>
-            {FILTER_OPTIONS.map((option) => (
-              <PillChip
-                key={option.value}
-                label={option.label}
-                selected={filter === option.value}
-                onPress={() => setFilter(option.value)}
-              />
-            ))}
-          </View>
-
-          {loading ? (
-            <LoadingState message="Loading journal..." style={styles.stateSpacing} />
-          ) : error ? (
-            <ErrorState message={error} onRetry={loadJournal} style={styles.stateSpacing} />
-          ) : filteredEntries.length === 0 ? (
-            <EmptyState
-              icon="journal-outline"
-              title="No journal entries yet"
-              message="Your entries will appear here once you save your first note."
-              style={styles.stateSpacing}
-            />
-          ) : (
-            <FlatList
-              data={filteredEntries}
-              keyExtractor={(item) => item.id}
-              renderItem={renderEntry}
-              contentContainerStyle={[styles.listContent, { paddingBottom: tabSafeBottomPadding }]}
-              ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
-              showsVerticalScrollIndicator={false}
-            />
-          )}
+                  ))}
+                </View>
+              </>
+            )}
+            ListEmptyComponent={renderHistoryEmpty}
+            contentContainerStyle={[styles.historyContent, { paddingBottom: tabSafeBottomPadding }]}
+            ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          />
         </>
       )}
 
@@ -761,7 +771,6 @@ const styles = StyleSheet.create({
     color: Colors.accent.primary,
   },
   calendarCard: {
-    marginHorizontal: Spacing.xl,
     marginTop: Spacing.md,
     padding: Spacing.lg,
     gap: Spacing.sm,
@@ -872,15 +881,17 @@ const styles = StyleSheet.create({
   filterRow: {
     flexDirection: 'row',
     gap: Spacing.xs,
-    paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.sm,
   },
   stateSpacing: {
-    marginHorizontal: Spacing.xl,
     marginTop: Spacing.md,
   },
-  listContent: {
+  historyList: {
+    flex: 1,
+  },
+  historyContent: {
     paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.sm,
     paddingBottom: Spacing.xxxxl,
   },
   entryCard: {

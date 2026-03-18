@@ -25,6 +25,7 @@ import { getRoleModeContract } from '../../core/utils/roleAccess';
 import { supabase } from '../../services/supabase';
 import { MentalHealthDashboard } from './components/MentalHealthDashboard';
 import { TherapistDashboardScreen } from '../therapist-dashboard/TherapistDashboardScreen';
+import { WeeklyRhythmGrid } from './components/WeeklyRhythmGrid';
 
 export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { profile, isTherapistMode, user } = useAuth();
@@ -344,42 +345,17 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               <Text style={styles.nextBestReason}>{nextGoalHelper}</Text>
               <View style={styles.weeklyProgressMeta}>
                 <Text style={styles.weeklyProgressText}>
-                  {`Care ${weeklyCareCount}/7 · Journal ${weeklyJournalCount}/7`}
+                  {`This week: Care ${weeklyCareCount}/7 · Journal ${weeklyJournalCount}/7`}
                 </Text>
               </View>
-              <View style={styles.weeklyLegendRow}>
-                <View style={styles.weeklyLegendItem}>
-                  <View style={[styles.weeklyLegendDot, styles.weeklyDayDotDone]} />
-                  <Text style={styles.weeklyLegendText}>Care</Text>
-                </View>
-                <View style={styles.weeklyLegendItem}>
-                  <View style={[styles.weeklyLegendDot, styles.weeklyDayDotJournalDone]} />
-                  <Text style={styles.weeklyLegendText}>Journal</Text>
-                </View>
-              </View>
-              <View style={styles.weeklyStrip}>
-                {weeklyCalendar.map((day) => (
-                  <View key={day.dateKey} style={styles.weeklyDay}>
-                    <Text style={styles.weeklyDayLabel}>{day.label}</Text>
-                    <View style={styles.weeklyDotStack}>
-                      <View
-                        style={[
-                          styles.weeklyDayDot,
-                          day.completed && styles.weeklyDayDotDone,
-                          day.isToday && styles.weeklyDayDotToday,
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.weeklyDayDot,
-                          styles.weeklyDayDotJournal,
-                          day.journalCompleted && styles.weeklyDayDotJournalDone,
-                        ]}
-                      />
-                    </View>
-                  </View>
-                ))}
-              </View>
+              <WeeklyRhythmGrid
+                days={weeklyCalendar.map((day) => ({
+                  label: day.label,
+                  careDone: day.completed,
+                  journalDone: day.journalCompleted,
+                  isToday: day.isToday,
+                }))}
+              />
               <View style={styles.nextBestActions}>
                 <Button
                   title={continueCtaLabel}
@@ -687,73 +663,6 @@ const styles = StyleSheet.create({
   weeklyProgressText: {
     ...Typography.caption,
     color: Colors.text.secondary,
-  },
-  weeklyLegendRow: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    alignItems: 'center',
-  },
-  weeklyLegendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  weeklyLegendDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.bg.secondary,
-    borderWidth: 1,
-    borderColor: Colors.stroke.medium,
-  },
-  weeklyLegendText: {
-    ...Typography.micro,
-    color: Colors.text.tertiary,
-  },
-  weeklyStrip: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: Spacing.xs,
-  },
-  weeklyDay: {
-    alignItems: 'center',
-    gap: 5,
-    flex: 1,
-  },
-  weeklyDotStack: {
-    alignItems: 'center',
-    gap: 4,
-  },
-  weeklyDayLabel: {
-    ...Typography.micro,
-    color: Colors.text.tertiary,
-  },
-  weeklyDayDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: Colors.stroke.medium,
-    backgroundColor: Colors.bg.secondary,
-  },
-  weeklyDayDotJournal: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    borderColor: Colors.status.warning,
-    backgroundColor: Colors.bg.secondary,
-  },
-  weeklyDayDotDone: {
-    backgroundColor: Colors.accent.primary,
-    borderColor: Colors.accent.primary,
-  },
-  weeklyDayDotJournalDone: {
-    backgroundColor: Colors.status.warning,
-    borderColor: Colors.status.warning,
-  },
-  weeklyDayDotToday: {
-    borderColor: Colors.accent.dark,
-    borderWidth: 1.6,
   },
   nextBestActions: {
     flexDirection: 'row',
