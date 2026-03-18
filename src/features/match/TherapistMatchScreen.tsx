@@ -205,6 +205,7 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
   const [requestStatusByTherapist, setRequestStatusByTherapist] = useState<Record<string, TherapistMatchRequestStatus>>({});
   const [introTarget, setIntroTarget] = useState<MatchedTherapist | null>(null);
   const [introQuestion, setIntroQuestion] = useState('');
+  const [introError, setIntroError] = useState<string | null>(null);
   const [requestSubmitting, setRequestSubmitting] = useState(false);
 
   const [modalState, setModalState] = useState<{
@@ -449,19 +450,26 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
 
   const openIntroQuestion = (item: MatchedTherapist) => {
     setIntroTarget(item);
+    setIntroError(null);
     setIntroQuestion(item.therapist.standout_prompt || 'What would be the best first step for us to focus on?');
+  };
+
+  const dismissIntro = () => {
+    setIntroTarget(null);
+    setIntroError(null);
   };
 
   const submitIntroQuestion = async () => {
     if (!user?.id || !introTarget) return;
     const text = introQuestion.trim();
     if (!text.length) {
-      showModal('blocking', 'Add a message', 'Write a short intro question to continue.');
+      setIntroError('Write a short intro question to continue.');
       return;
     }
 
     setRequestSubmitting(true);
     try {
+      setIntroError(null);
       await createTherapistMatchRequest({
         userId: user.id,
         therapistId: introTarget.therapist.id,
@@ -471,11 +479,11 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
         ...prev,
         [introTarget.therapist.id]: 'pending',
       }));
-      setIntroTarget(null);
+      dismissIntro();
       setIntroQuestion('');
       showModal('success', 'Intro sent', `Your intro message was sent to ${introTarget.therapist.display_name}.`);
     } catch (err: any) {
-      showModal('error', 'Unable to send', err.message || 'Please try again.');
+      setIntroError(err?.message || 'Unable to send right now. Please try again.');
     } finally {
       setRequestSubmitting(false);
     }
@@ -972,9 +980,9 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
 	        </ScrollView>
       )}
 
-      <Modal visible={Boolean(introTarget)} transparent animationType="slide" onRequestClose={() => setIntroTarget(null)}>
+      <Modal visible={Boolean(introTarget)} transparent animationType="slide" onRequestClose={dismissIntro}>
         <View style={styles.introOverlay}>
-          <TouchableWithoutFeedback onPress={() => setIntroTarget(null)}>
+          <TouchableWithoutFeedback onPress={dismissIntro}>
             <View style={styles.introBackdrop} />
           </TouchableWithoutFeedback>
           <KeyboardAvoidingView
@@ -987,13 +995,14 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
                   <Text style={styles.introTitle}>
                     Message {introTarget?.therapist.display_name || 'therapist'}
                   </Text>
-                  <TouchableOpacity onPress={() => setIntroTarget(null)}>
+                  <TouchableOpacity onPress={dismissIntro}>
                     <Ionicons name="close" size={22} color={Colors.text.primary} />
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.introBody}>
                   Send one short question to start. If they accept, you can book a 15-minute intro.
                 </Text>
+                {introError ? <Text style={styles.introError}>{introError}</Text> : null}
                 <TextInput
                   style={styles.introInput}
                   multiline
@@ -1006,7 +1015,7 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
                   <Button
                     title="Not now"
                     variant="ghost"
-                    onPress={() => setIntroTarget(null)}
+                    onPress={dismissIntro}
                     fullWidth={false}
                     style={styles.backButton}
                   />
@@ -1470,14 +1479,18 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: Spacing.sm,
   },
-  introBody: {
-    ...Typography.body,
-    color: Colors.text.secondary,
-  },
-  introInput: {
-    minHeight: 112,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
+	  introBody: {
+	    ...Typography.body,
+	    color: Colors.text.secondary,
+	  },
+	  introError: {
+	    ...Typography.caption,
+	    color: Colors.status.danger,
+	  },
+	  introInput: {
+	    minHeight: 112,
+	    borderRadius: Radius.lg,
+	    borderWidth: 1,
     borderColor: Colors.stroke.soft,
     backgroundColor: 'rgba(255,255,255,0.92)',
     paddingHorizontal: Spacing.sm,
