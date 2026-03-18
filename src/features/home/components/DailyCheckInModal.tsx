@@ -1,18 +1,43 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ScrollView, Alert } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Keyboard,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Typography, Spacing, Radius } from '../../../core/theme';
-import { supabase } from '../../../services/supabase';
+import * as Haptics from 'expo-haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BackendSetupCard, Button, Card, CoveMascot, CoveModal } from '../../../core/components';
+import { Colors, Radius, Spacing, Typography } from '../../../core/theme';
 import { useAuth } from '../../../core/context/AuthContext';
-import { BackendSetupCard } from '../../../core/components';
+import { supabase } from '../../../services/supabase';
 import { assessCareRisk } from '../../../core/utils/careRisk';
 import {
   scheduleAdaptiveWellbeingReminders,
   triggerSupportiveNudgeNotification,
 } from '../../../core/utils/wellbeingNotifications';
-import { careBuddyLine } from '../../../core/utils/careBuddy';
-import * as Haptics from 'expo-haptics';
-import { createCareNudgeEvent, getNudgeCooldownState } from '../../../core/services/careFlowService';
+import {
+  carePatternExplanation,
+  calculateCareScoreBreakdown,
+  getCarePatternState,
+} from '../../../core/utils/careScore';
+import {
+  createCareNudgeEvent,
+  getNudgeCooldownState,
+  upsertDailyCheckIn,
+} from '../../../core/services/careFlowService';
+import { CoveModalVariant } from '../../../core/models/types';
+import { localDateKey } from '../../../core/utils/date';
+import { MOOD_OPTIONS, normalizeMoodLabel } from '../../../core/utils/mood';
 
 interface DailyCheckInModalProps {
   visible: boolean;
@@ -23,8 +48,13 @@ interface DailyCheckInModalProps {
   onRetrySetup: () => void;
 }
 
-const MOODS = ['Happy', 'Neutral', 'Sad', 'Anxious', 'Angry'];
 const SLEEP_PRESETS = ['5', '6', '7', '8', '9'];
+
+const parseSleepHours = (value: string) => {
+  const parsed = Number.parseFloat(value.replace(',', '.'));
+  if (Number.isNaN(parsed)) return null;
+  return parsed;
+};
 
 export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
   visible,
@@ -35,71 +65,262 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
   onRetrySetup,
 }) => {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { height: viewportHeight } = useWindowDimensions();
+  const [step, setStep] = useState(0);
   const [mood, setMood] = useState<string | null>(null);
   const [stress, setStress] = useState(3);
   const [sleep, setSleep] = useState('7');
-  const [journal, setJournal] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [energy, setEnergy] = useState(3);
+  const [connectedness, setConnectedness] = useState(3);
+  const [coping, setCoping] = useState(3);
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [lastScore, setLastScore] = useState<number | null>(null);
+  const [isEditingToday, setIsEditingToday] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  const calculateCareScore = (selectedMood: string, stressLvl: number, sleepHrs: number) => {
-    let score = 50; // Base score
-    if (selectedMood === 'Happy') score += 20;
-    else if (selectedMood === 'Neutral') score += 10;
-    else if (selectedMood === 'Sad') score -= 10;
-    else if (selectedMood === 'Anxious') score -= 15;
-    else if (selectedMood === 'Angry') score -= 20;
+  const [feedbackModal, setFeedbackModal] = useState<{
+    visible: boolean;
+    variant: CoveModalVariant;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    variant: 'info',
+    title: '',
+    message: '',
+  });
 
-    // Stress (1-5), lower is better
-    score += (3 - stressLvl) * 5; 
+  const sleepHours = useMemo(() => parseSleepHours(sleep), [sleep]);
+  const effectiveKeyboardHeight = useMemo(
+    () => Math.max(0, keyboardHeight - (Platform.OS === 'ios' ? insets.bottom : 0)),
+    [insets.bottom, keyboardHeight],
+  );
+  const sheetMaxHeight = useMemo(() => {
+    const keyboardInset = Math.max(0, effectiveKeyboardHeight - Spacing.sm);
+    const available = viewportHeight - insets.top - Spacing.lg - keyboardInset;
+    const preferred = Math.min(viewportHeight * 0.86, available);
+    return Math.max(360, preferred);
+  }, [effectiveKeyboardHeight, insets.top, viewportHeight]);
 
-    // Sleep (optimal 7-9)
-    if (sleepHrs >= 7 && sleepHrs <= 9) score += 15;
-    else if (sleepHrs >= 5 && sleepHrs < 7) score += 5;
-    else score -= 10;
+  const breakdown = useMemo(() => {
+    const normalizedMood = normalizeMoodLabel(mood);
+    if (!normalizedMood || sleepHours === null || sleepHours <= 0 || sleepHours > 24) return null;
+    return calculateCareScoreBreakdown({
+      mood: normalizedMood,
+      stressLevel: stress,
+      sleepHours,
+      energyLevel: energy,
+      connectednessLevel: connectedness,
+      copingHelpfulness: coping,
+    });
+  }, [mood, sleepHours, stress, energy, connectedness, coping]);
 
-    // Journaling adds a small bonus
-    if (journal.trim().length > 10) score += 5;
+  const patternState = useMemo(() => {
+    if (!breakdown) return null;
+    return getCarePatternState(breakdown.score, lastScore);
+  }, [breakdown, lastScore]);
 
-    return Math.max(0, Math.min(100, score));
+  const resetForm = () => {
+    setStep(0);
+    setMood(null);
+    setStress(3);
+    setSleep('7');
+    setEnergy(3);
+    setConnectedness(3);
+    setCoping(3);
+    setNote('');
+    setIsEditingToday(false);
+    setShowBreakdown(false);
+    setFeedbackModal((prev) => ({ ...prev, visible: false }));
   };
 
-  const handleSave = async () => {
+  const showFeedback = (variant: CoveModalVariant, title: string, message: string) => {
+    setFeedbackModal({
+      visible: true,
+      variant,
+      title,
+      message,
+    });
+  };
+
+  useEffect(() => {
+    if (!visible || !user?.id) {
+      if (!visible) resetForm();
+      return;
+    }
+
+    const loadToday = async () => {
+      const today = localDateKey();
+      const isMissingColumnError = (error: any, columnName: string) => {
+        const code = `${error?.code || ''}`.toUpperCase();
+        const message = `${error?.message || ''}`.toLowerCase();
+        return code === '42703' || message.includes(columnName.toLowerCase());
+      };
+
+      let data: any = null;
+      const modernQuery = await supabase
+        .from('client_metrics')
+        .select('mood, stress_level, sleep_hours, energy_level, connectedness_level, coping_helpfulness, care_score_snapshot, check_in_date')
+        .eq('user_id', user.id)
+        .eq('check_in_date', today)
+        .maybeSingle();
+
+      if (modernQuery.error) {
+        const useLegacyPath =
+          isMissingColumnError(modernQuery.error, 'check_in_date')
+          || isMissingColumnError(modernQuery.error, 'energy_level')
+          || isMissingColumnError(modernQuery.error, 'connectedness_level')
+          || isMissingColumnError(modernQuery.error, 'coping_helpfulness');
+        if (!useLegacyPath) {
+          setIsEditingToday(false);
+          return;
+        }
+
+        const dayStart = `${today}T00:00:00.000Z`;
+        const dayEndDate = new Date(dayStart);
+        dayEndDate.setUTCDate(dayEndDate.getUTCDate() + 1);
+
+        const legacyQuery = await supabase
+          .from('client_metrics')
+          .select('mood, stress_level, sleep_hours, care_score_snapshot, created_at')
+          .eq('user_id', user.id)
+          .gte('created_at', dayStart)
+          .lt('created_at', dayEndDate.toISOString())
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (legacyQuery.error) {
+          const scoreMissing = isMissingColumnError(legacyQuery.error, 'care_score_snapshot');
+          if (!scoreMissing) {
+            setIsEditingToday(false);
+            return;
+          }
+          const freudFallback = await supabase
+            .from('client_metrics')
+            .select('mood, stress_level, sleep_hours, freud_score_snapshot, created_at')
+            .eq('user_id', user.id)
+            .gte('created_at', dayStart)
+            .lt('created_at', dayEndDate.toISOString())
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          data = freudFallback.data
+            ? { ...freudFallback.data, care_score_snapshot: (freudFallback.data as any).freud_score_snapshot }
+            : null;
+        } else {
+          data = legacyQuery.data;
+        }
+      } else {
+        data = modernQuery.data;
+      }
+
+      if (data) {
+        setMood(data.mood || null);
+        setStress(data.stress_level ?? 3);
+        setSleep(data.sleep_hours ? `${data.sleep_hours}` : '7');
+        setEnergy(data.energy_level ?? 3);
+        setConnectedness(data.connectedness_level ?? 3);
+        setCoping(data.coping_helpfulness ?? 3);
+        setIsEditingToday(true);
+      } else {
+        setIsEditingToday(false);
+      }
+
+      const { data: prevRows } = await supabase
+        .from('client_metrics')
+        .select('care_score_snapshot')
+        .eq('user_id', user.id)
+        .neq('check_in_date', today)
+        .order('check_in_date', { ascending: false })
+        .limit(1);
+      if (prevRows) {
+        setLastScore(prevRows?.[0]?.care_score_snapshot ?? null);
+      } else {
+        const previousLegacy = await supabase
+          .from('client_metrics')
+          .select('care_score_snapshot,created_at')
+          .eq('user_id', user.id)
+          .lt('created_at', `${today}T00:00:00.000Z`)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (!previousLegacy.error) {
+          setLastScore(previousLegacy.data?.[0]?.care_score_snapshot ?? null);
+        } else {
+          const previousFreud = await supabase
+            .from('client_metrics')
+            .select('freud_score_snapshot,created_at')
+            .eq('user_id', user.id)
+            .lt('created_at', `${today}T00:00:00.000Z`)
+            .order('created_at', { ascending: false })
+            .limit(1);
+          setLastScore((previousFreud.data?.[0] as any)?.freud_score_snapshot ?? null);
+        }
+      }
+    };
+
+    loadToday();
+  }, [visible, user?.id]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(event.endCoordinates?.height || 0);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const closeModal = () => {
+    Keyboard.dismiss();
+    onClose();
+  };
+
+  const canContinue = useMemo(() => {
+    if (step === 0) return Boolean(mood);
+    if (step === 1) return sleepHours !== null && sleepHours > 0 && sleepHours <= 24;
+    return true;
+  }, [mood, sleepHours, step]);
+
+  const saveCheckIn = async () => {
     if (!backendReady) {
-      Alert.alert('Setup required', setupIssue || 'Backend is not ready. Please run migration and retry.');
+      showFeedback('blocking', 'Setup required', setupIssue || 'Backend setup is not complete yet.');
       return;
     }
 
-    if (!user || !mood) {
-      Alert.alert('Missing Info', 'Please select a mood to continue.');
+    const normalizedMood = normalizeMoodLabel(mood);
+    if (!user?.id || !breakdown || !normalizedMood || sleepHours === null) {
+      showFeedback('blocking', 'Missing details', 'Complete mood and wellbeing details to continue.');
       return;
     }
 
-    const sleepNum = parseFloat(sleep.replace(',', '.'));
-    if (Number.isNaN(sleepNum) || sleepNum <= 0 || sleepNum > 24) {
-      Alert.alert('Invalid sleep input', 'Enter a valid sleep duration between 0 and 24 hours.');
-      return;
-    }
+    setSaving(true);
 
-    setLoading(true);
     try {
-      const score = calculateCareScore(mood, stress, sleepNum);
-
-      const { error } = await supabase.from('client_metrics').insert({
-        user_id: user.id,
-        mood,
-        stress_level: stress,
-        sleep_hours: sleepNum,
-        journal_entry: journal.trim() || null,
-        care_score_snapshot: score
+      await upsertDailyCheckIn({
+        userId: user.id,
+        mood: normalizedMood,
+        stressLevel: stress,
+        sleepHours,
+        energyLevel: energy,
+        connectednessLevel: connectedness,
+        copingHelpfulness: coping,
+        note,
+        checkInDate: localDateKey(),
       });
-
-      if (error) throw error;
 
       const { data: riskMetrics } = await supabase
         .from('client_metrics')
-        .select('created_at, stress_level, care_score_snapshot')
+        .select('created_at,check_in_date,stress_level,care_score_snapshot')
         .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
+        .order('check_in_date', { ascending: false })
         .limit(5);
 
       const risk = assessCareRisk(riskMetrics || []);
@@ -111,276 +332,567 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
         });
 
         if (!cooldown.isBlocked) {
-        const supportiveMessage =
-          'Your recent check-in suggests you might need extra support. We gently notified your therapist.';
+          const supportiveMessage =
+            'Your recent check-in suggests higher strain today. Your therapist can follow up if needed.';
 
-        const { data: conversations } = await supabase
-          .from('conversations')
-          .select('therapist_id')
-          .eq('user_id', user.id);
+          const { data: conversations } = await supabase
+            .from('conversations')
+            .select('therapist_id')
+            .eq('user_id', user.id);
 
-        const therapistIds = (conversations || [])
-          .map((row) => row.therapist_id)
-          .filter((id): id is string => Boolean(id));
+          const therapistIds = (conversations || [])
+            .map((row) => row.therapist_id)
+            .filter((id): id is string => Boolean(id));
 
-        await createCareNudgeEvent({
-          userId: user.id,
-          therapistId: therapistIds[0] || null,
-          triggerType: 'care_score_high_risk',
-          riskLevel: 'high',
-          source: 'system_auto',
-          messagePreview: supportiveMessage,
-        });
+          await createCareNudgeEvent({
+            userId: user.id,
+            therapistId: therapistIds[0] || null,
+            triggerType: 'care_score_high_risk',
+            riskLevel: 'high',
+            source: 'system_auto',
+            messagePreview: supportiveMessage,
+          });
 
-        await triggerSupportiveNudgeNotification();
+          await triggerSupportiveNudgeNotification();
         }
       }
 
       await scheduleAdaptiveWellbeingReminders(user.id);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      
+
       onSuccess();
-      onClose();
-      Alert.alert('Check-in saved', careBuddyLine('celebrate'));
-    } catch (e: any) {
-      Alert.alert('Error', e.message || 'Failed to save check-in.');
+      showFeedback(
+        'success',
+        isEditingToday ? 'Check-in updated' : 'Check-in saved',
+        'Your CareScore was updated for today.',
+      );
+    } catch (saveError: any) {
+      showFeedback('error', 'Could not save', saveError.message || 'Please try again in a moment.');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
-  return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.overlay}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.avoidingView}>
-          <View style={styles.sheet}>
-            <View style={styles.header}>
-              <Text style={styles.title}>Daily Check-in</Text>
-              <TouchableOpacity onPress={onClose} hitSlop={{top:10,right:10,bottom:10,left:10}}>
-                <Ionicons name="close" size={24} color={Colors.text.primary} />
-              </TouchableOpacity>
-            </View>
+  const onPrimaryAction = () => {
+    if (step < 2) {
+      setStep((prev) => prev + 1);
+      return;
+    }
+    saveCheckIn();
+  };
 
-            <ScrollView contentContainerStyle={styles.content}>
-              {setupIssue ? (
+  const onBackAction = () => {
+    if (step === 0) {
+      closeModal();
+      return;
+    }
+    setStep((prev) => Math.max(0, prev - 1));
+  };
+
+  return (
+    <>
+      <Modal visible={visible} animationType="slide" transparent>
+        <View style={styles.overlay}>
+          <Pressable style={styles.backdrop} onPress={closeModal} />
+          <View style={styles.keyboardWrap}>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+              <View
+                style={[
+                  styles.sheet,
+                  {
+                    maxHeight: sheetMaxHeight,
+                    marginTop: insets.top + Spacing.md,
+                    paddingBottom: Math.max(insets.bottom + Spacing.xs, Spacing.lg),
+                  },
+                ]}
+              >
+                <View style={styles.header}>
+                  <Text style={styles.title}>Daily check-in</Text>
+                  <TouchableOpacity
+                    onPress={closeModal}
+                    hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close check-in"
+                  >
+                    <Ionicons name="close" size={22} color={Colors.text.primary} />
+                  </TouchableOpacity>
+                </View>
+
+              {isEditingToday ? (
+                <View style={styles.editBadge}>
+                  <Ionicons name="create-outline" size={14} color={Colors.accent.primary} />
+                  <Text style={styles.editBadgeText}>Edit today&apos;s check-in</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.stepRail}>
+                {[0, 1, 2].map((railStep) => (
+                  <View
+                    key={railStep}
+                    style={[
+                      styles.stepRailDot,
+                      railStep <= step && styles.stepRailDotActive,
+                    ]}
+                  />
+                ))}
+              </View>
+
+              <View style={styles.helperLine}>
+                <CoveMascot variant="default" size={48} />
+                <Text style={styles.helperText}>Quick check-ins keep your care log clear.</Text>
+              </View>
+
+              {!backendReady ? (
                 <BackendSetupCard
-                  title="Mood Tracking Setup Required"
-                  message={setupIssue}
+                  title="Setup required"
+                  message={setupIssue || undefined}
                   onRetry={onRetrySetup}
                 />
               ) : (
-                <>
-                  <View style={styles.buddyCard}>
-                    <Ionicons name="leaf-outline" size={16} color={Colors.accent.primary} />
-                    <Text style={styles.buddyText}>{careBuddyLine('coach')}</Text>
-                  </View>
-                  <Text style={styles.label}>How are you feeling today?</Text>
-                  <View style={styles.moodRow}>
-                    {MOODS.map(m => (
-                      <TouchableOpacity 
-                        key={m} 
-                        style={[styles.moodBtn, mood === m && styles.moodBtnActive]}
-                        onPress={() => setMood(m)}
-                      >
-                        <Text style={[styles.moodText, mood === m && styles.moodTextActive]}>{m}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                <ScrollView
+                  style={styles.contentScroll}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                  contentContainerStyle={styles.content}
+                >
+                  {step === 0 ? (
+                    <Card style={styles.cardSection}>
+                      <Text style={styles.stepTitle}>How are you feeling right now?</Text>
+                      <View style={styles.optionGrid}>
+                        {MOOD_OPTIONS.map((item) => {
+                          const selected = mood === item.label;
+                          return (
+                            <TouchableOpacity
+                              key={item.value}
+                              style={[styles.choiceChip, selected && styles.choiceChipActive]}
+                              onPress={() => setMood(item.label)}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected }}
+                              accessibilityLabel={`${item.label} mood`}
+                            >
+                              <Text style={[styles.choiceChipText, selected && styles.choiceChipTextActive]}>
+                                {item.emoji} {item.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </Card>
+                  ) : null}
 
-                  <Text style={styles.label}>Stress Level (1-5)</Text>
-                  <View style={styles.stressRow}>
-                    {[1,2,3,4,5].map(lvl => (
-                      <TouchableOpacity 
-                        key={lvl} 
-                        style={[styles.stressBtn, stress === lvl && styles.stressBtnActive]}
-                        onPress={() => setStress(lvl)}
-                      >
-                        <Text style={[styles.stressText, stress === lvl && styles.stressTextActive]}>{lvl}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  {step === 1 ? (
+                    <Card style={styles.cardSection}>
+                      <Text style={styles.stepTitle}>Today’s strain and recovery</Text>
 
-                  <Text style={styles.label}>Hours of Sleep</Text>
-                  <View style={styles.moodRow}>
-                    {SLEEP_PRESETS.map((hours) => (
+                      <Text style={styles.fieldLabel}>Stress (1-5)</Text>
+                      <SegmentRow value={stress} onChange={setStress} />
+
+                      <Text style={styles.fieldLabel}>Sleep hours</Text>
+                      <View style={styles.optionGrid}>
+                        {SLEEP_PRESETS.map((item) => {
+                          const selected = sleep === item;
+                          return (
+                            <TouchableOpacity
+                              key={item}
+                              style={[styles.choiceChip, selected && styles.choiceChipActive]}
+                              onPress={() => setSleep(item)}
+                            >
+                              <Text style={[styles.choiceChipText, selected && styles.choiceChipTextActive]}>{item}h</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      <Text style={styles.fieldLabel}>Energy (1-5)</Text>
+                      <SegmentRow value={energy} onChange={setEnergy} />
+
+                      <Text style={styles.fieldLabel}>Connectedness (1-5)</Text>
+                      <SegmentRow value={connectedness} onChange={setConnectedness} />
+
+                      <Text style={styles.fieldLabel}>Coping felt helpful (1-5)</Text>
+                      <SegmentRow value={coping} onChange={setCoping} />
+                    </Card>
+                  ) : null}
+
+                  {step === 2 ? (
+                    <Card style={styles.cardSection}>
+                      <Text style={styles.stepTitle}>Anything to note for today? (optional)</Text>
+                      <TextInput
+                        style={styles.noteInput}
+                        placeholder="A few words are enough"
+                        placeholderTextColor={Colors.text.tertiary}
+                        multiline
+                        value={note}
+                        onChangeText={setNote}
+                        accessibilityLabel="Check-in note"
+                      />
+
                       <TouchableOpacity
-                        key={hours}
-                        style={[styles.moodBtn, sleep === hours && styles.moodBtnActive]}
-                        onPress={() => setSleep(hours)}
+                        style={styles.breakdownBtn}
+                        onPress={() => setShowBreakdown(true)}
+                        accessibilityRole="button"
+                        accessibilityLabel="How CareScore works"
                       >
-                        <Text style={[styles.moodText, sleep === hours && styles.moodTextActive]}>{hours}h</Text>
+                        <Ionicons name="information-circle-outline" size={18} color={Colors.accent.primary} />
+                        <Text style={styles.breakdownBtnText}>How we calculate CareScore</Text>
                       </TouchableOpacity>
-                    ))}
-                  </View>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Custom sleep hours (optional)"
-                    placeholderTextColor={Colors.text.tertiary}
-                    keyboardType="numeric"
-                    value={sleep}
-                    onChangeText={setSleep}
-                  />
 
-                  <Text style={styles.label}>Journal (Optional)</Text>
-                  <TextInput 
-                    style={[styles.input, styles.textArea]}
-                    placeholder="Write down any thoughts..."
-                    placeholderTextColor={Colors.text.tertiary}
-                    multiline
-                    numberOfLines={4}
-                    value={journal}
-                    onChangeText={setJournal}
-                  />
-                </>
+                      {patternState ? (
+                        <View style={styles.patternPreview}>
+                          <Text style={styles.patternPreviewTitle}>Today&apos;s CareScore summary</Text>
+                          <Text style={styles.patternPreviewLabel}>{patternState.label.replace('-', ' ')}</Text>
+                          <Text style={styles.patternPreviewTrend}>
+                            Current guidance: {patternState.trend === 'needs-support' ? 'needs support' : patternState.trend}
+                          </Text>
+                          <Text style={styles.patternPreviewGuidance}>{patternState.guidance}</Text>
+                        </View>
+                      ) : null}
+                    </Card>
+                  ) : null}
+                </ScrollView>
               )}
 
-              <TouchableOpacity
-                style={[styles.saveBtn, (!mood || loading || !backendReady || !!setupIssue) && styles.saveBtnDisabled]}
-                onPress={handleSave}
-                disabled={!mood || loading || !backendReady || !!setupIssue}
-              >
-                <Text style={styles.saveBtnText}>
-                  {setupIssue ? 'Setup required' : loading ? 'Saving...' : 'Complete Check-in'}
-                </Text>
+              <View style={styles.bottomRow}>
+                <Button
+                  title={step === 0 ? 'Close' : 'Back'}
+                  variant="ghost"
+                  onPress={onBackAction}
+                  fullWidth={false}
+                  style={styles.backBtn}
+                />
+                <Button
+                  title={step === 2 ? (saving ? 'Saving...' : 'Save check-in') : 'Continue'}
+                  onPress={onPrimaryAction}
+                  disabled={!canContinue || saving || !backendReady}
+                  loading={saving}
+                  style={styles.primaryBtn}
+                />
+              </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showBreakdown} animationType="slide" transparent>
+        <View style={styles.sheetOverlay}>
+          <View style={styles.breakdownSheet}>
+            <View style={styles.breakdownHeader}>
+              <Text style={styles.breakdownTitle}>How we calculate CareScore</Text>
+              <TouchableOpacity onPress={() => setShowBreakdown(false)}>
+                <Ionicons name="close" size={22} color={Colors.text.primary} />
               </TouchableOpacity>
+            </View>
+            <Text style={styles.breakdownLead}>
+              CareScore is based on your check-ins (mood, stress, sleep) and overall patterns.
+            </Text>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.breakdownContent}>
+              {carePatternExplanation.factors.map((factor) => (
+                <Card key={factor.id} style={styles.factorCard}>
+                  <Text style={styles.factorTitle}>{factor.title}</Text>
+                  <Text style={styles.factorSummary}>{factor.summary}</Text>
+                </Card>
+              ))}
             </ScrollView>
           </View>
-        </KeyboardAvoidingView>
-      </View>
-    </Modal>
+        </View>
+      </Modal>
+
+      <CoveModal
+        visible={feedbackModal.visible}
+        variant={feedbackModal.variant}
+        title={feedbackModal.title}
+        message={feedbackModal.message}
+        primaryAction={{
+          label: feedbackModal.variant === 'success' ? 'Done' : 'Okay',
+          onPress: () => {
+            const wasSuccess = feedbackModal.variant === 'success';
+            setFeedbackModal((prev) => ({ ...prev, visible: false }));
+            if (wasSuccess) {
+              closeModal();
+            }
+          },
+        }}
+        onDismiss={() => setFeedbackModal((prev) => ({ ...prev, visible: false }))}
+      />
+    </>
   );
 };
+
+const SegmentRow: React.FC<{ value: number; onChange: (v: number) => void }> = ({ value, onChange }) => (
+  <View style={styles.segmentRow}>
+    {[1, 2, 3, 4, 5].map((item) => {
+      const selected = value === item;
+      return (
+        <TouchableOpacity
+          key={item}
+          onPress={() => onChange(item)}
+          style={[styles.segmentItem, selected && styles.segmentItemActive]}
+          accessibilityRole="button"
+          accessibilityState={{ selected }}
+          accessibilityLabel={`Level ${item}`}
+        >
+          <Text style={[styles.segmentItemText, selected && styles.segmentItemTextActive]}>{item}</Text>
+        </TouchableOpacity>
+      );
+    })}
+  </View>
+);
 
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+    backgroundColor: Colors.ui.overlay,
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  keyboardWrap: {
+    width: '100%',
     justifyContent: 'flex-end',
   },
-  avoidingView: {
-    width: '100%',
-    maxHeight: '90%',
-  },
   sheet: {
-    backgroundColor: Colors.bg.primary,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.xxxxl,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderTopLeftRadius: Radius.xxl,
+    borderTopRightRadius: Radius.xxl,
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.lg,
+    minHeight: 420,
+    gap: Spacing.sm,
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: Spacing.xl,
-    marginBottom: Spacing.lg,
+    justifyContent: 'space-between',
   },
   title: {
-    ...Typography.title2,
+    ...Typography.title3,
     color: Colors.text.primary,
   },
-  content: {
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.xl,
-    gap: Spacing.md,
+  editBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    borderColor: Colors.accent.primary + '35',
+    backgroundColor: Colors.ui.glass,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 5,
   },
-  label: {
-    ...Typography.bodySemibold,
-    color: Colors.text.primary,
-    marginTop: Spacing.sm,
+  editBadgeText: {
+    ...Typography.micro,
+    color: Colors.accent.dark,
   },
-  buddyCard: {
+  stepRail: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  stepRailDot: {
+    flex: 1,
+    height: 8,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.bg.tertiary,
+  },
+  stepRailDotActive: {
+    backgroundColor: Colors.accent.primary,
+  },
+  helperLine: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs,
-    backgroundColor: Colors.accent.soft,
     borderRadius: Radius.lg,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.accent.primary + '20',
-  },
-  buddyText: {
-    ...Typography.caption,
-    color: Colors.accent.dark,
-    flex: 1,
-    lineHeight: 18,
-  },
-  moodRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  moodBtn: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.stroke.medium,
-    backgroundColor: Colors.bg.secondary,
-  },
-  moodBtnActive: {
-    backgroundColor: Colors.accent.soft,
-    borderColor: Colors.accent.primary,
-  },
-  moodText: {
-    ...Typography.bodySemibold,
-    color: Colors.text.secondary,
-  },
-  moodTextActive: {
-    color: Colors.accent.dark,
-  },
-  stressRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  stressBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.bg.secondary,
-    borderWidth: 1,
-    borderColor: Colors.stroke.medium,
-  },
-  stressBtnActive: {
-    backgroundColor: Colors.status.warningSoft,
-    borderColor: Colors.status.warning,
-  },
-  stressText: {
-    ...Typography.bodySemibold,
-    color: Colors.text.secondary,
-  },
-  stressTextActive: {
-    color: Colors.status.warning,
-  },
-  input: {
-    backgroundColor: Colors.bg.secondary,
-    borderRadius: Radius.lg,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    ...Typography.body,
-    color: Colors.text.primary,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.ui.glass,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
   },
-  textArea: {
-    minHeight: 100,
-    textAlignVertical: 'top',
+  helperText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    flex: 1,
   },
-  saveBtn: {
-    backgroundColor: Colors.accent.primary,
-    borderRadius: Radius.lg,
-    paddingVertical: Spacing.md,
-    alignItems: 'center',
-    marginTop: Spacing.xl,
+  contentScroll: {
+    flex: 1,
   },
-  saveBtnDisabled: {
-    opacity: 0.5,
+  content: {
+    paddingBottom: Spacing.xs,
   },
-  saveBtnText: {
+  cardSection: {
+    gap: Spacing.sm,
+    borderRadius: Radius.xl,
+  },
+  stepTitle: {
     ...Typography.bodySemibold,
-    color: Colors.text.inverse,
+    color: Colors.text.primary,
+  },
+  fieldLabel: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.secondary,
+    marginTop: Spacing.xs,
+  },
+  optionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+  },
+  choiceChip: {
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.ui.glass,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+  },
+  choiceChipActive: {
+    borderColor: Colors.accent.primary,
+    backgroundColor: Colors.accent.soft,
+  },
+  choiceChipText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
+  choiceChipTextActive: {
+    color: Colors.accent.dark,
+    fontWeight: '700',
+  },
+  segmentRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  segmentItem: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.ui.glass,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentItemActive: {
+    borderColor: Colors.accent.primary,
+    backgroundColor: Colors.accent.soft,
+  },
+  segmentItemText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
+  segmentItemTextActive: {
+    color: Colors.accent.dark,
+    fontWeight: '700',
+  },
+  noteInput: {
+    minHeight: 120,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.stroke.medium,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    textAlignVertical: 'top',
+    ...Typography.body,
+    color: Colors.text.primary,
+  },
+  breakdownBtn: {
+    marginTop: Spacing.xs,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  breakdownBtnText: {
+    ...Typography.captionEmphasis,
+    color: Colors.accent.primary,
+  },
+  patternPreview: {
+    marginTop: Spacing.sm,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.ui.glass,
+    padding: Spacing.sm,
+  },
+  patternPreviewTitle: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.secondary,
+  },
+  patternPreviewLabel: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+    marginTop: 2,
+    textTransform: 'capitalize',
+  },
+  patternPreviewTrend: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginTop: 2,
+    textTransform: 'capitalize',
+  },
+  patternPreviewGuidance: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginTop: Spacing.xs,
+  },
+  bottomRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  backBtn: {
+    minWidth: 110,
+  },
+  primaryBtn: {
+    flex: 1,
+  },
+  sheetOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: Colors.ui.overlay,
+  },
+  breakdownSheet: {
+    maxHeight: '78%',
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderTopLeftRadius: Radius.xxl,
+    borderTopRightRadius: Radius.xxl,
+    padding: Spacing.xl,
+  },
+  breakdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+  },
+  breakdownTitle: {
+    ...Typography.title3,
+    color: Colors.text.primary,
+    flex: 1,
+  },
+  breakdownLead: {
+    ...Typography.body,
+    color: Colors.text.secondary,
+    marginTop: Spacing.sm,
+  },
+  breakdownContent: {
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xl,
+    gap: Spacing.sm,
+  },
+  factorCard: {
+    borderRadius: Radius.lg,
+    gap: 4,
+  },
+  factorTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+  },
+  factorSummary: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
   },
 });

@@ -5,19 +5,19 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Button, Card, Avatar, ErrorState } from '../../core/components';
-import { Therapist, AvailabilitySlot } from '../../core/models/types';
+import { Button, Card, Avatar, CoveModal, ErrorState } from '../../core/components';
+import { Therapist, AvailabilitySlot, CoveModalAction, CoveModalVariant } from '../../core/models/types';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../core/context/AuthContext';
 import { ensureConversation } from '../../core/services/careFlowService';
 import { asDependencyState, dependenciesReady, describeBlockingDependency } from '../../core/utils/flowDependencies';
 import { SlotSelectionRouteParams } from '../../navigation/types';
+import { navigateBackSafe } from '../../navigation/safeBack';
 
 export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
@@ -32,6 +32,21 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
   const [loading, setLoading] = useState(false);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    variant: CoveModalVariant;
+    title: string;
+    message: string;
+    primaryAction?: CoveModalAction | null;
+    secondaryAction?: CoveModalAction | null;
+  }>({
+    visible: false,
+    variant: 'info',
+    title: '',
+    message: '',
+    primaryAction: null,
+    secondaryAction: null,
+  });
 
   const dates = getNext7Days();
 
@@ -44,6 +59,26 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
   useEffect(() => {
     if (selectedDate) fetchSlots();
   }, [selectedDate, therapist?.id]);
+
+  const showModal = (
+    variant: CoveModalVariant,
+    title: string,
+    message: string,
+    primaryAction?: CoveModalAction | null,
+    secondaryAction?: CoveModalAction | null,
+  ) => {
+    setModalState({
+      visible: true,
+      variant,
+      title,
+      message,
+      primaryAction: primaryAction || {
+        label: 'Okay',
+        onPress: () => setModalState((prev) => ({ ...prev, visible: false })),
+      },
+      secondaryAction: secondaryAction || null,
+    });
+  };
 
   const fetchSlots = async () => {
     if (!selectedDate) return;
@@ -100,7 +135,7 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
       asDependencyState('therapist', 'Therapist profile', Boolean(therapist?.id), 'Go back and re-open therapist profile.'),
     ];
     if (!dependenciesReady(dependencies)) {
-      Alert.alert('Cannot continue', describeBlockingDependency(dependencies) || 'Required details are missing.');
+      showModal('blocking', 'Cannot continue', describeBlockingDependency(dependencies) || 'Required details are missing.');
       return;
     }
 
@@ -137,7 +172,7 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
         booking,
       });
     } catch (err: any) {
-      Alert.alert('Booking failed', err.message || 'Something went wrong.');
+      showModal('error', 'Booking failed', err.message || 'Something went wrong.');
     } finally {
       setLoading(false);
     }
@@ -151,7 +186,7 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ErrorState
           message="Therapist details are missing. Reopen this flow from Match."
-          onRetry={() => navigation.goBack()}
+          onRetry={() => navigateBackSafe(navigation, 'TherapistMatch')}
         />
       </SafeAreaView>
     );
@@ -160,7 +195,7 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.headerBar}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigateBackSafe(navigation, 'TherapistProfile', { therapist })}>
           <Ionicons name="chevron-back" size={22} color={Colors.text.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Select a time</Text>
@@ -234,9 +269,9 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
           </Card>
         ) : (
           <>
-            {renderSlotGroup('Morning', morning, '☀️')}
-            {renderSlotGroup('Afternoon', afternoon, '🌤')}
-            {renderSlotGroup('Evening', evening, '🌙')}
+            {renderSlotGroup('Morning', morning)}
+            {renderSlotGroup('Afternoon', afternoon)}
+            {renderSlotGroup('Evening', evening)}
 
             {slots.length === 0 && (
               <View style={styles.noSlots}>
@@ -261,14 +296,24 @@ export const SlotSelectionScreen: React.FC<{ route: any; navigation: any }> = ({
           size="lg"
         />
       </View>
+
+      <CoveModal
+        visible={modalState.visible}
+        variant={modalState.variant}
+        title={modalState.title}
+        message={modalState.message}
+        primaryAction={modalState.primaryAction || undefined}
+        secondaryAction={modalState.secondaryAction || undefined}
+        onDismiss={() => setModalState((prev) => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 
-  function renderSlotGroup(label: string, groupSlots: AvailabilitySlot[], emoji: string) {
+  function renderSlotGroup(label: string, groupSlots: AvailabilitySlot[]) {
     if (groupSlots.length === 0) return null;
     return (
       <View style={styles.slotGroup}>
-        <Text style={styles.groupLabel}>{emoji} {label}</Text>
+        <Text style={styles.groupLabel}>{label}</Text>
         <View style={styles.slotsRow}>
           {groupSlots.map((slot) => (
             <TouchableOpacity
@@ -332,7 +377,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: Spacing.sm,
     borderRadius: Radius.xl,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
   },
@@ -352,7 +397,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: Spacing.sm,
     borderRadius: Radius.xl,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
   },
@@ -373,7 +418,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.xs,
     paddingHorizontal: Spacing.md,
     borderRadius: Radius.lg,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
   },
@@ -389,7 +434,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
     borderRadius: Radius.xl,

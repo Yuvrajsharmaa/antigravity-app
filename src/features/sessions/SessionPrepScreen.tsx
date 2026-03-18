@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Avatar, Button, Card, ErrorState } from '../../core/components';
+import { Avatar, Button, Card, CoveModal, ErrorState } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
-import { RiskLevel } from '../../core/models/types';
+import { CoveModalAction, CoveModalVariant, RiskLevel } from '../../core/models/types';
 import { Colors, Radius, Spacing, Typography } from '../../core/theme';
 import { assessCareRisk } from '../../core/utils/careRisk';
 import { supabase } from '../../services/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { navigateBackSafe } from '../../navigation/safeBack';
 
 interface SessionPrepPayload {
   id: string | null;
@@ -41,11 +42,9 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
 
   const [agenda, setAgenda] = useState('');
   const [feeling, setFeeling] = useState<string | null>(null);
-  const [audioReady, setAudioReady] = useState(true);
-  const [cameraReady, setCameraReady] = useState(true);
   const [secondsToWindow, setSecondsToWindow] = useState(0);
   const [riskLevel, setRiskLevel] = useState<RiskLevel>('stable');
-  const [riskReason, setRiskReason] = useState('Loading client trend...');
+  const [riskReason, setRiskReason] = useState('Loading client check-in summary...');
   const [snapshot, setSnapshot] = useState<ClientSnapshot>({
     concern: null,
     stylePreference: null,
@@ -54,6 +53,41 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
     sleep: null,
     note: null,
   });
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    variant: CoveModalVariant;
+    title: string;
+    message: string;
+    primaryAction?: CoveModalAction | null;
+    secondaryAction?: CoveModalAction | null;
+  }>({
+    visible: false,
+    variant: 'info',
+    title: '',
+    message: '',
+    primaryAction: null,
+    secondaryAction: null,
+  });
+
+  const showModal = (
+    variant: CoveModalVariant,
+    title: string,
+    message: string,
+    primaryAction?: CoveModalAction | null,
+    secondaryAction?: CoveModalAction | null,
+  ) => {
+    setModalState({
+      visible: true,
+      variant,
+      title,
+      message,
+      primaryAction: primaryAction || {
+        label: 'Okay',
+        onPress: () => setModalState((prev) => ({ ...prev, visible: false })),
+      },
+      secondaryAction: secondaryAction || null,
+    });
+  };
 
   useEffect(() => {
     if (!session?.booking_id || isTherapistMode) return;
@@ -99,7 +133,7 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
       const sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
       const { data, error } = await supabase
         .from('client_metrics')
-        .select('created_at, stress_level, sleep_hours, mood, journal_entry, care_score_snapshot')
+        .select('created_at, stress_level, sleep_hours, mood, care_score_snapshot')
         .eq('user_id', session.participant_id)
         .gte('created_at', sinceIso)
         .order('created_at', { ascending: false })
@@ -107,7 +141,7 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
 
       if (error) {
         setRiskLevel('stable');
-        setRiskReason('Could not load trend details.');
+        setRiskReason('Could not load check-in details.');
         return;
       }
 
@@ -116,12 +150,19 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
       setRiskReason(result.reason);
 
       const latest = data?.[0];
+      const { data: latestJournal } = await supabase
+        .from('journal_entries')
+        .select('body')
+        .eq('user_id', session.participant_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
       setSnapshot((prev) => ({
         ...prev,
         mood: latest?.mood || null,
         stress: latest?.stress_level ?? null,
         sleep: latest?.sleep_hours ?? null,
-        note: latest?.journal_entry || null,
+        note: latestJournal?.body || null,
       }));
 
       const { data: prefs } = await supabase
@@ -159,12 +200,12 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
 
   const joinNow = () => {
     if (!joinAvailable) {
-      Alert.alert('Awaiting confirmation', 'This booking must be confirmed before joining.');
+      showModal('blocking', 'Awaiting confirmation', 'This booking must be confirmed before joining.');
       return;
     }
 
     if (!joinWindowOpen) {
-      Alert.alert('Too early', 'Join opens 5 minutes before the session starts.');
+      showModal('info', 'Too early', 'Join opens 5 minutes before the session starts.');
       return;
     }
 
@@ -182,12 +223,12 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
       {!session?.booking_id ? (
         <ErrorState
           message="Session prep data is missing. Please return to Sessions and reopen this card."
-          onRetry={() => navigation.goBack()}
+          onRetry={() => navigateBackSafe(navigation, 'Main', { screen: 'SessionsTab' })}
         />
       ) : (
         <>
       <View style={styles.header}>
-        <Button title="Back" variant="ghost" fullWidth={false} onPress={() => navigation.goBack()} />
+        <Button title="Back" variant="ghost" fullWidth={false} onPress={() => navigateBackSafe(navigation, 'Main', { screen: 'SessionsTab' })} />
         <Text style={styles.title}>Session Prep</Text>
         <View style={{ width: 56 }} />
       </View>
@@ -251,7 +292,7 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
         ) : (
           <Card>
             <View style={styles.rowBetween}>
-              <Text style={styles.sectionTitle}>Client trend (7 days)</Text>
+              <Text style={styles.sectionTitle}>Client snapshot (7 days)</Text>
               <View style={[styles.riskChip, { backgroundColor: getRiskChip().bg }]}>
                 <Text style={[styles.riskChipText, { color: getRiskChip().color }]}>{getRiskChip().text}</Text>
               </View>
@@ -280,23 +321,6 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
           </Card>
         )}
 
-        <Card>
-          <Text style={styles.sectionTitle}>Device check</Text>
-          <CheckItem
-            icon={audioReady ? 'checkmark-circle' : 'close-circle'}
-            label="Microphone"
-            onPress={() => setAudioReady((prev) => !prev)}
-            active={audioReady}
-          />
-          <CheckItem
-            icon={cameraReady ? 'checkmark-circle' : 'close-circle'}
-            label="Camera"
-            onPress={() => setCameraReady((prev) => !prev)}
-            active={cameraReady}
-            noBorder
-          />
-        </Card>
-
         <Button
           title="Join session"
           onPress={joinNow}
@@ -305,23 +329,18 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
       </ScrollView>
       </>
       )}
+      <CoveModal
+        visible={modalState.visible}
+        variant={modalState.variant}
+        title={modalState.title}
+        message={modalState.message}
+        primaryAction={modalState.primaryAction || undefined}
+        secondaryAction={modalState.secondaryAction || undefined}
+        onDismiss={() => setModalState((prev) => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 };
-
-const CheckItem: React.FC<{
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  active: boolean;
-  onPress: () => void;
-  noBorder?: boolean;
-}> = ({ icon, label, active, onPress, noBorder = false }) => (
-  <TouchableOpacity style={[styles.checkRow, !noBorder && styles.checkRowBorder]} onPress={onPress}>
-    <Ionicons name={icon} size={18} color={active ? Colors.status.success : Colors.status.danger} />
-    <Text style={styles.checkLabel}>{label}</Text>
-    <Text style={styles.checkAction}>{active ? 'Ready' : 'Fix'}</Text>
-  </TouchableOpacity>
-);
 
 const SnapshotItem: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <View style={styles.snapshotItem}>
@@ -389,7 +408,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderRadius: Radius.xl,
   },
   readinessText: {
@@ -405,7 +424,7 @@ const styles = StyleSheet.create({
     minHeight: 96,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: 'rgba(255,255,255,0.92)',
     borderRadius: Radius.lg,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
@@ -421,7 +440,7 @@ const styles = StyleSheet.create({
   chip: {
     borderWidth: 1,
     borderColor: Colors.stroke.medium,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderRadius: Radius.lg,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
@@ -463,7 +482,7 @@ const styles = StyleSheet.create({
   },
   snapshotItem: {
     width: '48%',
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
@@ -495,7 +514,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   promptBox: {
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
@@ -509,24 +528,5 @@ const styles = StyleSheet.create({
   promptText: {
     ...Typography.caption,
     color: Colors.text.secondary,
-  },
-  checkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingVertical: Spacing.sm,
-  },
-  checkRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.ui.divider,
-  },
-  checkLabel: {
-    ...Typography.body,
-    color: Colors.text.primary,
-    flex: 1,
-  },
-  checkAction: {
-    ...Typography.captionEmphasis,
-    color: Colors.accent.primary,
   },
 });

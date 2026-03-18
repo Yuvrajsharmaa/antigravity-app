@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { Modal, ScrollView, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../../core/theme';
 import { Card, BackendSetupCard } from '../../../core/components';
@@ -8,54 +8,181 @@ import { supabase } from '../../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { DailyCheckInModal } from './DailyCheckInModal';
 import { useClientMetricsReadiness } from '../../../core/hooks/useClientMetricsReadiness';
+import {
+  carePatternExplanation,
+  calculateCareScoreBreakdown,
+  getCarePatternState,
+} from '../../../core/utils/careScore';
+import { localDateKey } from '../../../core/utils/date';
+import { getMoodOption, normalizeMoodLabel } from '../../../core/utils/mood';
 
 export const MentalHealthDashboard: React.FC<{ openSignal?: number }> = ({ openSignal = 0 }) => {
   const { user } = useAuth();
   const { ready, checking, requiresSetup, issue, refresh } = useClientMetricsReadiness();
 
-  const [careScore, setCareScore] = useState<number | null>(null);
+  const [latestScoreSnapshot, setLatestScoreSnapshot] = useState<number | null>(null);
+  const [previousScoreSnapshot, setPreviousScoreSnapshot] = useState<number | null>(null);
+  const [hasCheckInToday, setHasCheckInToday] = useState(false);
   const [mood, setMood] = useState<string | null>(null);
   const [sleep, setSleep] = useState<number>(0);
   const [stress, setStress] = useState<number>(0);
+  const [energy, setEnergy] = useState<number>(3);
+  const [connectedness, setConnectedness] = useState<number>(3);
+  const [coping, setCoping] = useState<number>(3);
   const [hasJournaled, setHasJournaled] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [showScoreSheet, setShowScoreSheet] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchTodayMetrics = useCallback(async () => {
     if (!user || !ready) return;
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const localMidnight = new Date();
+    localMidnight.setHours(0, 0, 0, 0);
+    const todayKey = localDateKey();
 
-    const { data, error } = await supabase
+    const isMissingColumnError = (error: any, columnName: string) => {
+      const code = `${error?.code || ''}`.toUpperCase();
+      const message = `${error?.message || ''}`.toLowerCase();
+      return code === '42703' || message.includes(columnName.toLowerCase());
+    };
+
+    let metric: any = null;
+    const modernQuery = await supabase
       .from('client_metrics')
-      .select('*')
+      .select('id,care_score_snapshot,mood,sleep_hours,stress_level,energy_level,connectedness_level,coping_helpfulness,journal_entry,created_at,check_in_date')
       .eq('user_id', user.id)
-      .gte('created_at', today.toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1);
+      .eq('check_in_date', todayKey)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (error) {
-      setLoadError(error.message || 'Could not load today\'s check-in.');
-      return;
+    if (modernQuery.error) {
+      const useLegacyPath =
+        isMissingColumnError(modernQuery.error, 'check_in_date')
+        || isMissingColumnError(modernQuery.error, 'energy_level')
+        || isMissingColumnError(modernQuery.error, 'connectedness_level')
+        || isMissingColumnError(modernQuery.error, 'coping_helpfulness')
+        || isMissingColumnError(modernQuery.error, 'updated_at');
+
+      if (!useLegacyPath) {
+        setLoadError(modernQuery.error.message || 'Could not load today\'s check-in.');
+        return;
+      }
+
+      const dayStart = `${todayKey}T00:00:00.000Z`;
+      const dayEndDate = new Date(dayStart);
+      dayEndDate.setUTCDate(dayEndDate.getUTCDate() + 1);
+      const dayEnd = dayEndDate.toISOString();
+
+      const legacyQuery = await supabase
+        .from('client_metrics')
+        .select('id,care_score_snapshot,mood,sleep_hours,stress_level,journal_entry,created_at')
+        .eq('user_id', user.id)
+        .gte('created_at', dayStart)
+        .lt('created_at', dayEnd)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (legacyQuery.error) {
+        const careScoreMissing = isMissingColumnError(legacyQuery.error, 'care_score_snapshot');
+        if (!careScoreMissing) {
+          setLoadError(legacyQuery.error.message || 'Could not load today\'s check-in.');
+          return;
+        }
+
+        const freudFallback = await supabase
+          .from('client_metrics')
+          .select('id,freud_score_snapshot,mood,sleep_hours,stress_level,journal_entry,created_at')
+          .eq('user_id', user.id)
+          .gte('created_at', dayStart)
+          .lt('created_at', dayEnd)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (freudFallback.error) {
+          setLoadError(freudFallback.error.message || 'Could not load today\'s check-in.');
+          return;
+        }
+
+        metric = freudFallback.data
+          ? { ...freudFallback.data, care_score_snapshot: (freudFallback.data as any).freud_score_snapshot }
+          : null;
+      } else {
+        metric = legacyQuery.data;
+      }
+    } else {
+      metric = modernQuery.data;
     }
 
     setLoadError(null);
 
-    if (data && data.length > 0) {
-      const metric = data[0];
-      setCareScore(metric.care_score_snapshot);
+    if (metric) {
+      setLatestScoreSnapshot(metric.care_score_snapshot);
+      setHasCheckInToday(true);
       setMood(metric.mood);
       setSleep(metric.sleep_hours);
       setStress(metric.stress_level);
-      setHasJournaled(!!metric.journal_entry);
+      setEnergy(metric.energy_level ?? 3);
+      setConnectedness(metric.connectedness_level ?? 3);
+      setCoping(metric.coping_helpfulness ?? 3);
+      const { data: journalRows } = await supabase
+        .from('journal_entries')
+        .select('id')
+        .eq('user_id', user.id)
+        .gte('created_at', localMidnight.toISOString())
+        .limit(1);
+
+      const hasJournalToday = Boolean(journalRows?.length) || Boolean(metric.journal_entry);
+      setHasJournaled(hasJournalToday);
+
+      const previousRowsQuery = await supabase
+        .from('client_metrics')
+        .select('care_score_snapshot')
+        .eq('user_id', user.id)
+        .neq('check_in_date', todayKey)
+        .order('check_in_date', { ascending: false })
+        .limit(1);
+      if (!previousRowsQuery.error) {
+        setPreviousScoreSnapshot(previousRowsQuery.data?.[0]?.care_score_snapshot ?? null);
+      } else {
+        const previousLegacy = await supabase
+          .from('client_metrics')
+          .select('care_score_snapshot,created_at')
+          .eq('user_id', user.id)
+          .lt('created_at', `${todayKey}T00:00:00.000Z`)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (!previousLegacy.error) {
+          setPreviousScoreSnapshot(previousLegacy.data?.[0]?.care_score_snapshot ?? null);
+        } else if (isMissingColumnError(previousLegacy.error, 'care_score_snapshot')) {
+          const previousFreud = await supabase
+            .from('client_metrics')
+            .select('freud_score_snapshot,created_at')
+            .eq('user_id', user.id)
+            .lt('created_at', `${todayKey}T00:00:00.000Z`)
+            .order('created_at', { ascending: false })
+            .limit(1);
+          setPreviousScoreSnapshot((previousFreud.data?.[0] as any)?.freud_score_snapshot ?? null);
+        } else {
+          setPreviousScoreSnapshot(null);
+        }
+      }
       return;
     }
 
-    setCareScore(null);
+    setLatestScoreSnapshot(null);
+    setPreviousScoreSnapshot(null);
+    setHasCheckInToday(false);
     setMood(null);
     setSleep(0);
     setStress(0);
+    setEnergy(3);
+    setConnectedness(3);
+    setCoping(3);
     setHasJournaled(false);
   }, [ready, user]);
 
@@ -77,23 +204,6 @@ export const MentalHealthDashboard: React.FC<{ openSignal?: number }> = ({ openS
     }
   }, [openSignal]);
 
-  const getMoodEmoji = (currentMood: string | null) => {
-    switch (currentMood) {
-      case 'Happy':
-        return '😊';
-      case 'Neutral':
-        return '😐';
-      case 'Sad':
-        return '😞';
-      case 'Anxious':
-        return '😬';
-      case 'Angry':
-        return '😠';
-      default:
-        return '☁️';
-    }
-  };
-
   if (requiresSetup) {
     return (
       <View style={styles.container}>
@@ -111,6 +221,31 @@ export const MentalHealthDashboard: React.FC<{ openSignal?: number }> = ({ openS
   }
 
   const dashboardIssue = loadError || (!ready && !checking ? issue : null);
+  const scoreBreakdown = mood && sleep > 0
+    ? calculateCareScoreBreakdown({
+      mood,
+      stressLevel: stress || 3,
+      sleepHours: sleep,
+      energyLevel: energy || 3,
+      connectednessLevel: connectedness || 3,
+      copingHelpfulness: coping || 3,
+    })
+    : null;
+  const patternState = scoreBreakdown
+    ? getCarePatternState(scoreBreakdown.score, previousScoreSnapshot)
+    : null;
+  const hasLoggedToday = hasCheckInToday && Boolean(latestScoreSnapshot !== null || mood);
+  const moodOption = getMoodOption(mood);
+  const moodDisplayText = useMemo(() => {
+    const raw = moodOption?.label || normalizeMoodLabel(mood) || 'Not logged';
+    if (raw === 'Not logged') return 'Log now';
+    const compact = raw.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const tokens = compact.split(' ');
+    return tokens
+      .filter((token, index) => index === 0 || token.toLowerCase() !== tokens[index - 1].toLowerCase())
+      .join(' ');
+  }, [mood, moodOption?.label]);
+  const moodBadge = moodOption?.emoji || '🙂';
 
   return (
     <View style={styles.container}>
@@ -138,18 +273,26 @@ export const MentalHealthDashboard: React.FC<{ openSignal?: number }> = ({ openS
         </Card>
       ) : (
         <View style={styles.metricsRow}>
-          <TouchableOpacity style={[styles.metricCard, styles.careCard]} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={[styles.metricCard, styles.careCard]}
+            activeOpacity={0.8}
+            onPress={() => setShowScoreSheet(true)}
+          >
             <View style={styles.metricCardHeader}>
               <Ionicons name="heart-half-outline" size={16} color={Colors.accent.dark} />
               <Text style={[styles.metricCardTitle, styles.metricCardTitleCare]}>CareScore</Text>
             </View>
             <View style={styles.scoreContainer}>
-              <View style={styles.scoreCircle}>
-                <Text style={styles.scoreNumber}>{careScore !== null ? careScore : '-'}</Text>
+              <View style={styles.patternPill}>
+                <Text style={styles.patternPillText}>
+                  {patternState ? patternState.label.replace('-', ' ') : 'Pending'}
+                </Text>
               </View>
             </View>
             <Text style={[styles.scoreLabel, styles.scoreLabelCare]}>
-              {careScore !== null ? 'Logged' : 'Pending'}
+              {patternState
+                ? `Current direction: ${patternState.trend === 'needs-support' ? 'needs support' : patternState.trend}`
+                : 'Log today'}
             </Text>
           </TouchableOpacity>
 
@@ -159,24 +302,30 @@ export const MentalHealthDashboard: React.FC<{ openSignal?: number }> = ({ openS
             onPress={() => setShowModal(true)}
           >
             <View style={styles.metricCardHeader}>
-              <Ionicons name="happy-outline" size={16} color={Colors.status.warning} />
+              <Ionicons name="happy-outline" size={16} color={Colors.text.secondary} />
               <Text style={[styles.metricCardTitle, styles.metricCardTitleMood]}>Mood</Text>
             </View>
             <View style={styles.moodIconContainer}>
-              <Text style={styles.moodEmoji}>{getMoodEmoji(mood)}</Text>
+              <Text style={styles.moodEmoji}>{moodBadge}</Text>
             </View>
-            <Text style={[styles.scoreLabel, styles.scoreLabelMood]}>{mood || 'Log now'}</Text>
+            <Text
+              style={[styles.scoreLabel, styles.scoreLabelMood]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {moodDisplayText}
+            </Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {!careScore && (
+      {!hasLoggedToday && (
         <TouchableOpacity style={styles.logPromptCard} onPress={() => setShowModal(true)}>
           <View style={styles.logPromptIcon}>
             <Ionicons name="add-circle" size={24} color={Colors.accent.primary} />
           </View>
           <View style={styles.logPromptTextContainer}>
-            <Text style={styles.logPromptTitle}>Daily Check-in</Text>
+            <Text style={styles.logPromptTitle}>Daily check-in</Text>
             <Text style={styles.logPromptDesc}>Log your mood and mental state for today.</Text>
           </View>
         </TouchableOpacity>
@@ -214,13 +363,52 @@ export const MentalHealthDashboard: React.FC<{ openSignal?: number }> = ({ openS
 
         <TrackerRow
           icon="water-outline"
-          iconColor="#EBCB6B"
-          iconBg="#FDF8E7"
+          iconColor={Colors.status.warning}
+          iconBg={Colors.status.warningSoft}
           title="Stress Level"
           subtitle={`Level ${stress > 0 ? stress : '-'}`}
           noBorder
         />
       </Card>
+
+      <Modal visible={showScoreSheet} animationType="slide" transparent>
+        <View style={styles.sheetOverlay}>
+          <View style={styles.scoreSheet}>
+            <View style={styles.scoreSheetHeader}>
+              <Text style={styles.scoreSheetTitle}>{carePatternExplanation.title}</Text>
+              <TouchableOpacity onPress={() => setShowScoreSheet(false)} accessibilityRole="button" accessibilityLabel="Close score explanation">
+                <Ionicons name="close" size={22} color={Colors.text.primary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.scoreSheetContent} showsVerticalScrollIndicator={false}>
+              {patternState ? (
+                <>
+                  <Text style={styles.scoreSheetLead}>
+                    {carePatternExplanation.description}
+                  </Text>
+                  {carePatternExplanation.factors.map((factor) => (
+                    <Card key={factor.id} style={styles.factorCard}>
+                      <Text style={styles.factorTitle}>{factor.title}</Text>
+                      <Text style={styles.factorSummary}>{factor.summary}</Text>
+                    </Card>
+                  ))}
+
+                  <Card style={styles.rangeCard}>
+                    <Text style={styles.rangeLabel}>Current pattern</Text>
+                    <Text style={styles.rangeTitle}>{patternState.label.replace('-', ' ')}</Text>
+                    <Text style={styles.rangeDescription}>{patternState.guidance}</Text>
+                  </Card>
+                </>
+              ) : (
+                <Text style={styles.scoreSheetLead}>
+                  Complete today&apos;s check-in to view your CareScore guidance.
+                </Text>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -281,24 +469,25 @@ const styles = StyleSheet.create({
   },
   metricCard: {
     flex: 1,
-    borderRadius: Radius.xl,
-    padding: Spacing.lg,
+    borderRadius: Radius.xxl,
+    padding: Spacing.md,
     alignItems: 'center',
     justifyContent: 'space-between',
-    height: 168,
+    height: 154,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
   },
   careCard: {
-    backgroundColor: Colors.accent.soft,
+    backgroundColor: Colors.ui.glass,
   },
   moodCard: {
-    backgroundColor: Colors.status.warningSoft,
+    backgroundColor: Colors.ui.glass,
   },
   metricCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    width: '100%',
     alignSelf: 'flex-start',
   },
   metricCardTitle: {
@@ -308,42 +497,36 @@ const styles = StyleSheet.create({
     color: Colors.accent.dark,
   },
   metricCardTitleMood: {
-    color: Colors.status.warning,
-  },
-  scoreContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: Colors.bg.secondary,
-    borderWidth: 1,
-    borderColor: Colors.stroke.subtle,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scoreCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: Colors.text.inverse,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  scoreNumber: {
-    ...Typography.title1,
-    color: Colors.accent.dark,
-  },
-  moodIconContainer: {
-    width: 72,
-    height: 72,
-    alignItems: 'center',
-    justifyContent: 'center',
+    color: Colors.text.secondary,
   },
   moodEmoji: {
-    fontSize: 46,
+    fontSize: 24,
+    lineHeight: 28,
+  },
+  scoreContainer: {
+    minHeight: 66,
+    minWidth: 66,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  patternPill: {
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    backgroundColor: Colors.ui.glass,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+  },
+  patternPillText: {
+    ...Typography.captionEmphasis,
+    color: Colors.accent.dark,
+    textTransform: 'capitalize',
+  },
+  moodIconContainer: {
+    width: '100%',
+    height: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scoreLabel: {
     ...Typography.bodySemibold,
@@ -353,10 +536,14 @@ const styles = StyleSheet.create({
   },
   scoreLabelMood: {
     color: Colors.text.primary,
+    width: '100%',
+    textAlign: 'center',
+    fontSize: 17,
+    lineHeight: 20,
   },
   trackerCard: {
     padding: Spacing.md,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderRadius: Radius.xl,
     shadowColor: Colors.stroke.medium,
     shadowOpacity: 0.1,
@@ -365,6 +552,75 @@ const styles = StyleSheet.create({
     elevation: 4,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
+  },
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.36)',
+    justifyContent: 'flex-end',
+  },
+  scoreSheet: {
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderTopLeftRadius: Radius.xxl,
+    borderTopRightRadius: Radius.xxl,
+    maxHeight: '78%',
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.xl,
+  },
+  scoreSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.xl,
+    marginBottom: Spacing.xs,
+  },
+  scoreSheetTitle: {
+    ...Typography.title2,
+    color: Colors.text.primary,
+  },
+  scoreSheetContent: {
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.sm,
+    paddingBottom: Spacing.xl,
+  },
+  scoreSheetLead: {
+    ...Typography.body,
+    color: Colors.text.secondary,
+    lineHeight: 21,
+  },
+  factorCard: {
+    borderRadius: Radius.xl,
+    gap: Spacing.xxs,
+  },
+  factorTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+  },
+  factorSummary: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
+  rangeCard: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.ui.glass,
+    gap: Spacing.xs,
+  },
+  rangeLabel: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.secondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  rangeTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+    textTransform: 'capitalize',
+  },
+  rangeDescription: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    lineHeight: 19,
   },
   trackerRow: {
     flexDirection: 'row',
@@ -402,7 +658,7 @@ const styles = StyleSheet.create({
   logPromptCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     padding: Spacing.md,
     borderRadius: Radius.xl,
     borderWidth: 1,

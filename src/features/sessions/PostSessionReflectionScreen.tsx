@@ -1,15 +1,22 @@
-import React, { useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Button, Card } from '../../core/components';
+import { Button, Card, CoveModal } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { Colors, Radius, Spacing, Typography } from '../../core/theme';
-import { scheduleAdaptiveWellbeingReminders } from '../../core/utils/wellbeingNotifications';
 import { supabase } from '../../services/supabase';
-import { createCareNudgeEvent, ensureConversation } from '../../core/services/careFlowService';
-import { careBuddyLine } from '../../core/utils/careBuddy';
+import {
+  createCareNudgeEvent,
+  createJournalEntry,
+  ensureConversation,
+  fetchActiveTherapistLock,
+  setTherapistLockAction,
+} from '../../core/services/careFlowService';
+import { calculateCareScore } from '../../core/utils/careScore';
 import * as Haptics from 'expo-haptics';
+import { ActiveTherapistLock, CoveModalAction, CoveModalVariant } from '../../core/models/types';
+import { navigateBackSafe } from '../../navigation/safeBack';
 
 interface ReflectionSessionPayload {
   id: string | null;
@@ -27,12 +34,7 @@ const moodToStress = (mood: string) => {
   return 4;
 };
 
-const moodToScore = (mood: string) => {
-  if (mood === 'Relieved') return 78;
-  if (mood === 'Calm') return 68;
-  if (mood === 'Unsure') return 56;
-  return 42;
-};
+const moodToScoreSource = (mood: string) => (mood === 'Relieved' ? 'Calm' : mood);
 
 export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any }> = ({ route, navigation }) => {
   const { user, isTherapistMode } = useAuth();
@@ -43,10 +45,53 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
   const [nextAction, setNextAction] = useState('');
   const [saving, setSaving] = useState(false);
   const [followUpSent, setFollowUpSent] = useState(false);
+  const [activeLock, setActiveLock] = useState<ActiveTherapistLock | null>(null);
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    variant: CoveModalVariant;
+    title: string;
+    message: string;
+    primaryAction?: CoveModalAction | null;
+    secondaryAction?: CoveModalAction | null;
+  }>({
+    visible: false,
+    variant: 'info',
+    title: '',
+    message: '',
+    primaryAction: null,
+    secondaryAction: null,
+  });
+
+  const showModal = (
+    variant: CoveModalVariant,
+    title: string,
+    message: string,
+    primaryAction?: CoveModalAction | null,
+    secondaryAction?: CoveModalAction | null,
+  ) => {
+    setModalState({
+      visible: true,
+      variant,
+      title,
+      message,
+      primaryAction: primaryAction || {
+        label: 'Okay',
+        onPress: () => setModalState((prev) => ({ ...prev, visible: false })),
+      },
+      secondaryAction: secondaryAction || null,
+    });
+  };
 
   const reflectionSummary = useMemo(() => {
-    return `Post-session reflection\nTakeaway: ${takeaway.trim() || '-'}\nNext action: ${nextAction.trim() || '-'}`;
+    return `${takeaway.trim()}\n\nNext step: ${nextAction.trim()}`;
   }, [nextAction, takeaway]);
+
+  useEffect(() => {
+    if (!user?.id || isTherapistMode) return;
+    fetchActiveTherapistLock(user.id)
+      .then(setActiveLock)
+      .catch(() => setActiveLock(null));
+  }, [isTherapistMode, user?.id]);
 
   const goToSessions = () => {
     navigation.navigate('Main', { screen: 'SessionsTab', params: { initialTab: 'past' } });
@@ -54,37 +99,84 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
 
   const saveClientReflection = async () => {
     if (!user || !mood) {
-      Alert.alert('Add reflection', 'Choose how you are feeling after the session.');
+      showModal('blocking', 'Add reflection', 'Choose how you are feeling after the session.');
       return;
     }
 
     if (!takeaway.trim() || !nextAction.trim()) {
-      Alert.alert('Almost there', 'Please add one takeaway and one next action.');
+      showModal('blocking', 'Almost there', 'Please add one takeaway and one next action.');
       return;
     }
 
     setSaving(true);
     try {
-      const { error } = await supabase.from('client_metrics').insert({
-        user_id: user.id,
-        mood,
-        stress_level: moodToStress(mood),
-        sleep_hours: 7,
-        journal_entry: reflectionSummary,
-        care_score_snapshot: moodToScore(mood),
+      const inferredScore = calculateCareScore({
+        mood: moodToScoreSource(mood),
+        stressLevel: moodToStress(mood),
+        sleepHours: 7,
       });
 
-      if (error) throw error;
+      await createJournalEntry({
+        userId: user.id,
+        entryType: 'post_session_reflection',
+        title: 'Post-session reflection',
+        body: reflectionSummary,
+        mood,
+        stressLevel: moodToStress(mood),
+        sleepHours: null,
+        careScoreSnapshot: inferredScore,
+        sessionId: session.id || null,
+      });
 
-      await scheduleAdaptiveWellbeingReminders(user.id);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Saved', 'Reflection captured. Great work showing up for yourself.');
+      showModal('success', 'Saved', 'Your post-session reflection is saved.');
       goToSessions();
     } catch (err: any) {
-      Alert.alert('Unable to save', err.message || 'Please try again.');
+      showModal('error', 'Unable to save', err.message || 'Please try again.');
     } finally {
       setSaving(false);
     }
+  };
+
+  const lockTherapistFromSession = async () => {
+    if (!user?.id || !session.participant_id || isTherapistMode) return;
+    const alreadyLocked = activeLock?.therapist_id === session.participant_id;
+    if (alreadyLocked) {
+      showModal('info', 'Already set', `${session.participant_name || 'This therapist'} is already your primary therapist.`);
+      return;
+    }
+
+    const switching = Boolean(activeLock?.therapist_id && activeLock.therapist_id !== session.participant_id);
+    showModal(
+      'confirm',
+      switching ? 'Switch primary therapist?' : 'Set as primary therapist?',
+      switching
+        ? `${activeLock?.therapist_name} will be replaced as your primary therapist.`
+        : `You can still change this later from Profile.`,
+      {
+        label: switching ? 'Switch' : 'Set primary',
+        onPress: async () => {
+          try {
+            await setTherapistLockAction({
+              userId: user.id,
+              therapistId: session.participant_id as string,
+              action: switching ? 'switch' : 'lock',
+              switchReason: switching ? 'Client switched after session' : null,
+            });
+            setModalState((prev) => ({ ...prev, visible: false }));
+            const lock = await fetchActiveTherapistLock(user.id);
+            setActiveLock(lock);
+            showModal('success', 'Saved', `${session.participant_name || 'Therapist'} is now your primary therapist.`);
+          } catch (err: any) {
+            showModal('error', 'Unable to save', err.message || 'Please try again.');
+          }
+        },
+      },
+      {
+        label: 'Cancel',
+        onPress: () => setModalState((prev) => ({ ...prev, visible: false })),
+      },
+    );
   };
 
   const findOrCreateConversation = async () => {
@@ -131,9 +223,9 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
       });
 
       setFollowUpSent(true);
-      Alert.alert('Sent', 'Follow-up nudge delivered to the client chat.');
+      showModal('success', 'Sent', 'Follow-up nudge delivered to the client chat.');
     } catch (err: any) {
-      Alert.alert('Unable to send', err.message || 'Please try again.');
+      showModal('error', 'Unable to send', err.message || 'Please try again.');
     } finally {
       setSaving(false);
     }
@@ -154,9 +246,9 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
       });
 
       setFollowUpSent(true);
-      Alert.alert('Saved', 'Follow-up marked as sent.');
+      showModal('success', 'Saved', 'Follow-up marked as sent.');
     } catch (err: any) {
-      Alert.alert('Unable to mark', err.message || 'Please try again.');
+      showModal('error', 'Unable to mark', err.message || 'Please try again.');
     } finally {
       setSaving(false);
     }
@@ -165,7 +257,7 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.header}>
-        <Button title="Back" variant="ghost" fullWidth={false} onPress={() => navigation.goBack()} />
+        <Button title="Back" variant="ghost" fullWidth={false} onPress={() => navigateBackSafe(navigation, 'Main', { screen: 'SessionsTab' })} />
         <Text style={styles.title}>{isTherapistMode ? 'Session Follow-up' : 'Post Session Reflection'}</Text>
         <View style={{ width: 56 }} />
       </View>
@@ -178,7 +270,6 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
         {!isTherapistMode ? (
           <>
             <Card>
-              <Text style={styles.helperText}>{careBuddyLine('reflect')}</Text>
               <Text style={styles.sectionTitle}>How do you feel after this session?</Text>
               <View style={styles.chipsRow}>
                 {REFLECTION_MOODS.map((item) => (
@@ -214,6 +305,20 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
             </Card>
 
             <Button title={saving ? 'Saving...' : 'Save reflection'} onPress={saveClientReflection} loading={saving} />
+
+            {session.participant_id ? (
+              <Button
+                title={
+                  activeLock?.therapist_id === session.participant_id
+                    ? 'Primary therapist set'
+                    : 'Set as primary therapist'
+                }
+                onPress={lockTherapistFromSession}
+                variant="secondary"
+                icon={<Ionicons name="checkmark-circle-outline" size={18} color={Colors.text.primary} />}
+                style={{ marginTop: Spacing.sm }}
+              />
+            ) : null}
           </>
         ) : (
           <>
@@ -223,29 +328,39 @@ export const PostSessionReflectionScreen: React.FC<{ route: any; navigation: any
                 Send a warm nudge, then mark the follow-up as complete for your dashboard trail.
               </Text>
 
-              <TouchableOpacity
-                style={[styles.actionBtn, followUpSent && styles.actionBtnDisabled]}
-                disabled={saving || followUpSent}
+              <Button
+                title="Send follow-up nudge"
                 onPress={sendTherapistFollowUp}
-              >
-                <Ionicons name="paper-plane-outline" size={16} color={Colors.text.inverse} />
-                <Text style={styles.actionBtnText}>Send follow-up nudge</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.markBtn, followUpSent && styles.actionBtnDisabled]}
+                variant="primary"
+                icon={<Ionicons name="paper-plane-outline" size={16} color={Colors.text.inverse} />}
+                loading={saving}
                 disabled={saving || followUpSent}
+              />
+
+              <Button
+                title="Mark follow-up as sent"
                 onPress={markFollowUp}
-              >
-                <Ionicons name="checkmark-circle-outline" size={16} color={Colors.accent.primary} />
-                <Text style={styles.markBtnText}>Mark follow-up as sent</Text>
-              </TouchableOpacity>
+                variant="secondary"
+                icon={<Ionicons name="checkmark-circle-outline" size={18} color={Colors.text.primary} />}
+                loading={saving}
+                disabled={saving || followUpSent}
+                style={{ marginTop: Spacing.sm }}
+              />
             </Card>
 
             <Button title="Done" onPress={goToSessions} />
           </>
         )}
       </ScrollView>
+      <CoveModal
+        visible={modalState.visible}
+        variant={modalState.variant}
+        title={modalState.title}
+        message={modalState.message}
+        primaryAction={modalState.primaryAction || undefined}
+        secondaryAction={modalState.secondaryAction || undefined}
+        onDismiss={() => setModalState((prev) => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 };
@@ -288,7 +403,7 @@ const styles = StyleSheet.create({
   chip: {
     borderWidth: 1,
     borderColor: Colors.stroke.medium,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderRadius: Radius.lg,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
@@ -308,7 +423,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
     borderRadius: Radius.lg,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: 'rgba(255,255,255,0.92)',
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     ...Typography.body,
@@ -316,39 +431,7 @@ const styles = StyleSheet.create({
   },
   helperText: {
     ...Typography.caption,
-    color: Colors.accent.primary,
+    color: Colors.text.secondary,
     marginBottom: Spacing.sm,
-  },
-  actionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    backgroundColor: Colors.accent.primary,
-    borderRadius: Radius.lg,
-    paddingVertical: Spacing.sm,
-  },
-  actionBtnText: {
-    ...Typography.bodySemibold,
-    color: Colors.text.inverse,
-  },
-  markBtn: {
-    marginTop: Spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    borderWidth: 1,
-    borderColor: Colors.stroke.medium,
-    borderRadius: Radius.lg,
-    paddingVertical: Spacing.sm,
-    backgroundColor: Colors.bg.secondary,
-  },
-  markBtnText: {
-    ...Typography.bodySemibold,
-    color: Colors.text.primary,
-  },
-  actionBtnDisabled: {
-    opacity: 0.6,
   },
 });

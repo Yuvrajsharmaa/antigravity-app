@@ -5,18 +5,29 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Button, Card, Avatar, PillChip, LoadingState, ErrorState } from '../../core/components';
-import { Therapist, AvailabilitySlot, MatchReasonChip } from '../../core/models/types';
+import { Button, Card, Avatar, PillChip, LoadingState, ErrorState, CoveModal } from '../../core/components';
+import {
+  ActiveTherapistLock,
+  Therapist,
+  AvailabilitySlot,
+  MatchReasonChip,
+  CoveModalAction,
+  CoveModalVariant,
+} from '../../core/models/types';
 import { supabase } from '../../services/supabase';
 import { careBuddyLine } from '../../core/utils/careBuddy';
 import { useAuth } from '../../core/context/AuthContext';
-import { ensureConversation } from '../../core/services/careFlowService';
+import {
+  ensureConversation,
+  fetchActiveTherapistLock,
+  setTherapistLockAction,
+} from '../../core/services/careFlowService';
 import { TherapistProfileRouteParams } from '../../navigation/types';
+import { navigateBackSafe } from '../../navigation/safeBack';
 
 export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
@@ -28,12 +39,54 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
   const [slotsLoading, setSlotsLoading] = useState(true);
   const [slotsError, setSlotsError] = useState<string | null>(null);
   const [openingChat, setOpeningChat] = useState(false);
+  const [activeLock, setActiveLock] = useState<ActiveTherapistLock | null>(null);
+  const [lockBusy, setLockBusy] = useState(false);
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    variant: CoveModalVariant;
+    title: string;
+    message: string;
+    primaryAction?: CoveModalAction | null;
+    secondaryAction?: CoveModalAction | null;
+  }>({
+    visible: false,
+    variant: 'info',
+    title: '',
+    message: '',
+    primaryAction: null,
+    secondaryAction: null,
+  });
+
+  const showModal = (
+    variant: CoveModalVariant,
+    title: string,
+    message: string,
+    primaryAction?: CoveModalAction | null,
+    secondaryAction?: CoveModalAction | null,
+  ) => {
+    setModalState({
+      visible: true,
+      variant,
+      title,
+      message,
+      primaryAction: primaryAction || {
+        label: 'Okay',
+        onPress: () => setModalState((prev) => ({ ...prev, visible: false })),
+      },
+      secondaryAction: secondaryAction || null,
+    });
+  };
 
   useEffect(() => {
     if (therapist?.id) {
       fetchSlots();
     }
   }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    refreshLockState();
+  }, [user?.id]);
 
   const fetchSlots = async () => {
     setSlotsLoading(true);
@@ -96,10 +149,96 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
         },
       });
     } catch (error: any) {
-      Alert.alert('Unable to open chat', error.message || 'Please try again.');
+      showModal('error', 'Unable to open chat', error.message || 'Please try again.');
     } finally {
       setOpeningChat(false);
     }
+  };
+
+  const refreshLockState = async () => {
+    if (!user?.id) return;
+    try {
+      const lock = await fetchActiveTherapistLock(user.id);
+      setActiveLock(lock);
+    } catch {
+      setActiveLock(null);
+    }
+  };
+
+  const lockTherapist = async () => {
+    if (!user?.id || !therapist?.id) return;
+    const sameLock = activeLock?.therapist_id === therapist.id;
+    if (sameLock) {
+      showModal('info', 'Already locked', `${therapist.display_name} is already your primary therapist.`);
+      return;
+    }
+
+    const isSwitch = Boolean(activeLock?.therapist_id && activeLock.therapist_id !== therapist.id);
+    showModal(
+      'confirm',
+      isSwitch ? 'Switch primary therapist?' : 'Lock this therapist?',
+      isSwitch
+        ? `${activeLock?.therapist_name} will be replaced as your primary therapist.`
+        : `${therapist.display_name} will become your primary therapist.`,
+      {
+        label: isSwitch ? 'Switch' : 'Lock therapist',
+        onPress: async () => {
+          setLockBusy(true);
+          try {
+            await setTherapistLockAction({
+              userId: user.id,
+              therapistId: therapist.id,
+              action: isSwitch ? 'switch' : 'lock',
+              switchReason: isSwitch ? 'Client switched therapist' : null,
+            });
+            setModalState((prev) => ({ ...prev, visible: false }));
+            await refreshLockState();
+            showModal('success', 'Saved', `${therapist.display_name} is now your primary therapist.`);
+          } catch (error: any) {
+            showModal('error', 'Unable to update', error.message || 'Please try again.');
+          } finally {
+            setLockBusy(false);
+          }
+        },
+      },
+      {
+        label: 'Cancel',
+        onPress: () => setModalState((prev) => ({ ...prev, visible: false })),
+      },
+    );
+  };
+
+  const keepExploring = async () => {
+    if (!user?.id || !therapist?.id) return;
+    showModal(
+      'confirm',
+      'Keep exploring?',
+      'This therapist will no longer be marked as primary.',
+      {
+        label: 'Keep exploring',
+        onPress: async () => {
+          setLockBusy(true);
+          try {
+            await setTherapistLockAction({
+              userId: user.id,
+              therapistId: activeLock?.therapist_id || therapist.id,
+              action: 'keep_exploring',
+              switchReason: 'Client reopened exploration',
+            });
+            setModalState((prev) => ({ ...prev, visible: false }));
+            await refreshLockState();
+          } catch (error: any) {
+            showModal('error', 'Unable to update', error.message || 'Please try again.');
+          } finally {
+            setLockBusy(false);
+          }
+        },
+      },
+      {
+        label: 'Cancel',
+        onPress: () => setModalState((prev) => ({ ...prev, visible: false })),
+      },
+    );
   };
 
   if (!therapist?.id) {
@@ -107,7 +246,7 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ErrorState
           message="Therapist details are missing. Please return to Match and open a profile again."
-          onRetry={() => navigation.goBack()}
+          onRetry={() => navigateBackSafe(navigation, 'TherapistMatch')}
         />
       </SafeAreaView>
     );
@@ -117,7 +256,7 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* Back button */}
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigateBackSafe(navigation, 'TherapistMatch')}>
           <Ionicons name="chevron-back" size={22} color={Colors.text.primary} />
         </TouchableOpacity>
 
@@ -144,6 +283,52 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
             </View>
           </View>
         </View>
+
+        {/* About */}
+        <Card style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Therapist preference</Text>
+            {activeLock?.therapist_id === therapist.id ? (
+              <>
+                <Text style={styles.lockTitle}>Primary therapist set</Text>
+                <Text style={styles.lockMeta}>You are currently locked with {therapist.display_name}.</Text>
+                <View style={styles.lockActions}>
+                  <Button
+                    title="Keep exploring"
+                    variant="secondary"
+                    fullWidth={false}
+                    onPress={keepExploring}
+                    loading={lockBusy}
+                    style={styles.lockActionBtn}
+                  />
+                  <Button
+                    title="Message"
+                    variant="ghost"
+                    fullWidth={false}
+                    onPress={startChat}
+                    loading={openingChat}
+                    style={styles.lockActionBtn}
+                  />
+                </View>
+              </>
+            ) : (
+              <>
+                {activeLock ? (
+                  <Text style={styles.lockMeta}>
+                    You are currently locked with {activeLock.therapist_name}. Switch if this therapist feels like a better fit.
+                  </Text>
+                ) : (
+                  <Text style={styles.lockMeta}>No therapist is locked yet. You can keep exploring or lock when ready.</Text>
+                )}
+                <Button
+                  title={activeLock ? 'Switch to this therapist' : 'Lock this therapist'}
+                  fullWidth={false}
+                  onPress={lockTherapist}
+                  loading={lockBusy}
+                  style={styles.singleLockBtn}
+                />
+              </>
+            )}
+          </Card>
 
         {/* About */}
         <Card style={styles.sectionCard}>
@@ -245,6 +430,16 @@ export const TherapistProfileScreen: React.FC<{ route: any; navigation: any }> =
           />
         </View>
       </View>
+
+      <CoveModal
+        visible={modalState.visible}
+        variant={modalState.variant}
+        title={modalState.title}
+        message={modalState.message}
+        primaryAction={modalState.primaryAction || undefined}
+        secondaryAction={modalState.secondaryAction || undefined}
+        onDismiss={() => setModalState((prev) => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 };
@@ -263,7 +458,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -320,7 +515,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   availabilityState: {
-    minHeight: 120,
+    marginBottom: Spacing.sm,
   },
   fitCopy: {
     ...Typography.body,
@@ -331,6 +526,27 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     color: Colors.accent.primary,
     marginTop: Spacing.xs,
+  },
+  lockTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+    marginBottom: 2,
+  },
+  lockMeta: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    lineHeight: 18,
+  },
+  lockActions: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    marginTop: Spacing.sm,
+  },
+  lockActionBtn: {
+    flex: 1,
+  },
+  singleLockBtn: {
+    marginTop: Spacing.sm,
   },
   matchChipRow: {
     flexDirection: 'row',

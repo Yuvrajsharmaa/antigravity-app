@@ -4,18 +4,18 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Avatar, Card, ErrorState } from '../../core/components';
+import { Avatar, Button, Card, CoveModal, ErrorState } from '../../core/components';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../core/context/AuthContext';
 import { completeSessionAndBooking } from '../../core/services/careFlowService';
 import { asDependencyState, dependenciesReady, describeBlockingDependency } from '../../core/utils/flowDependencies';
-import { careBuddyLine } from '../../core/utils/careBuddy';
 import { VideoCallRouteSession } from '../../navigation/types';
+import { CoveModalAction, CoveModalVariant } from '../../core/models/types';
+import { navigateBackSafe } from '../../navigation/safeBack';
 
 export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
@@ -30,7 +30,42 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
   const [elapsed, setElapsed] = useState(0);
   const [truthIssue, setTruthIssue] = useState<string | null>(null);
   const [refreshingTruth, setRefreshingTruth] = useState(false);
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    variant: CoveModalVariant;
+    title: string;
+    message: string;
+    primaryAction?: CoveModalAction | null;
+    secondaryAction?: CoveModalAction | null;
+  }>({
+    visible: false,
+    variant: 'info',
+    title: '',
+    message: '',
+    primaryAction: null,
+    secondaryAction: null,
+  });
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const showModal = (
+    variant: CoveModalVariant,
+    title: string,
+    message: string,
+    primaryAction?: CoveModalAction | null,
+    secondaryAction?: CoveModalAction | null,
+  ) => {
+    setModalState({
+      visible: true,
+      variant,
+      title,
+      message,
+      primaryAction: primaryAction || {
+        label: 'Okay',
+        onPress: () => setModalState((prev) => ({ ...prev, visible: false })),
+      },
+      secondaryAction: secondaryAction || null,
+    });
+  };
 
   const participantName = sessionState?.participant_name || sessionState?.therapist_name || 'Session participant';
   const participantAvatar = sessionState?.participant_avatar || sessionState?.therapist_avatar || null;
@@ -125,7 +160,7 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
       asDependencyState('participant', 'Participant', Boolean(participantName), 'Re-open this call from sessions.'),
     ];
     if (!dependenciesReady(dependencies)) {
-      Alert.alert('Unavailable', describeBlockingDependency(dependencies) || 'This session is not ready to join yet.');
+      showModal('blocking', 'Unavailable', describeBlockingDependency(dependencies) || 'This session is not ready to join yet.');
       return;
     }
 
@@ -150,7 +185,7 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
 
     if (error) {
       setCallState('waiting');
-      Alert.alert('Unable to join', error.message || 'Please try again.');
+      showModal('error', 'Unable to join', error.message || 'Please try again.');
       return;
     }
 
@@ -170,7 +205,8 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
         bookingId: sessionState?.booking_id,
       });
     } catch (error: any) {
-      Alert.alert(
+      showModal(
+        'error',
         'Session ended locally',
         error?.message || 'Call ended, but sync failed. Please refresh sessions.',
       );
@@ -196,31 +232,35 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
           <Text style={styles.endedSubtitle}>
             {isTherapistMode
               ? 'Wrap up with a quick follow-up action.'
-              : 'Take 30 seconds to capture your post-session reflection.'}
+              : 'Capture a short journal reflection before you leave.'}
           </Text>
-          {!isTherapistMode ? (
-            <Text style={styles.buddyLine}>{careBuddyLine('reflect')}</Text>
-          ) : null}
 
           <View style={styles.endedActions}>
-            <TouchableOpacity
-              style={styles.endedBtn}
-              onPress={() => {
-                navigation.navigate('PostSessionReflection', { session: sessionState });
-              }}
-            >
-              <Text style={styles.endedBtnText}>{isTherapistMode ? 'Open follow-up' : 'Reflect now'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.endedBtn, styles.endedBtnPrimary]}
-              onPress={() => {
-                navigation.navigate('Main', { screen: 'SessionsTab', params: { initialTab: 'past' } });
-              }}
-            >
-              <Text style={[styles.endedBtnText, styles.endedBtnPrimaryText]}>Later</Text>
-            </TouchableOpacity>
+            <Button
+              title={isTherapistMode ? 'Open follow-up' : 'Open journal'}
+              onPress={() => navigation.navigate('PostSessionReflection', { session: sessionState })}
+              variant="primary"
+              fullWidth={false}
+              style={{ flex: 1 }}
+            />
+            <Button
+              title="Later"
+              onPress={() => navigation.navigate('Main', { screen: 'SessionsTab', params: { initialTab: 'past' } })}
+              variant="secondary"
+              fullWidth={false}
+              style={{ flex: 1 }}
+            />
           </View>
         </View>
+        <CoveModal
+          visible={modalState.visible}
+          variant={modalState.variant}
+          title={modalState.title}
+          message={modalState.message}
+          primaryAction={modalState.primaryAction || undefined}
+          secondaryAction={modalState.secondaryAction || undefined}
+          onDismiss={() => setModalState((prev) => ({ ...prev, visible: false }))}
+        />
       </SafeAreaView>
     );
   }
@@ -231,7 +271,7 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
         <SafeAreaView style={styles.safeArea}>
           <ErrorState
             message="Session details are incomplete. Go back and open this call from Sessions."
-            onRetry={() => navigation.goBack()}
+            onRetry={() => navigateBackSafe(navigation, 'Main', { screen: 'SessionsTab' })}
           />
         </SafeAreaView>
       );
@@ -240,7 +280,7 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.waitingContainer}>
-          <TouchableOpacity style={styles.closeBtn} onPress={() => navigation.goBack()}>
+          <TouchableOpacity style={styles.closeBtn} onPress={() => navigateBackSafe(navigation, 'Main', { screen: 'SessionsTab' })}>
             <Ionicons name="close" size={22} color={Colors.text.primary} />
           </TouchableOpacity>
 
@@ -257,9 +297,15 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
           {truthIssue ? (
             <Card style={styles.truthIssueCard}>
               <Text style={styles.truthIssueText}>{truthIssue}</Text>
-              <TouchableOpacity onPress={refreshSessionTruth}>
-                <Text style={styles.truthIssueRetry}>{refreshingTruth ? 'Refreshing...' : 'Retry status check'}</Text>
-              </TouchableOpacity>
+              <Button
+                title={refreshingTruth ? 'Refreshing...' : 'Retry status check'}
+                onPress={refreshSessionTruth}
+                variant="secondary"
+                size="sm"
+                fullWidth={false}
+                style={{ alignSelf: 'flex-start' }}
+                disabled={refreshingTruth}
+              />
             </Card>
           ) : null}
 
@@ -290,11 +336,23 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
             />
           </View>
 
-          <TouchableOpacity style={styles.joinBtn} onPress={startCall}>
-            <Ionicons name="videocam" size={22} color={Colors.text.inverse} />
-            <Text style={styles.joinBtnText}>Join session</Text>
-          </TouchableOpacity>
+          <Button
+            title="Join session"
+            onPress={startCall}
+            variant="primary"
+            size="lg"
+            icon={<Ionicons name="videocam" size={20} color={Colors.text.inverse} />}
+          />
         </View>
+        <CoveModal
+          visible={modalState.visible}
+          variant={modalState.variant}
+          title={modalState.title}
+          message={modalState.message}
+          primaryAction={modalState.primaryAction || undefined}
+          secondaryAction={modalState.secondaryAction || undefined}
+          onDismiss={() => setModalState((prev) => ({ ...prev, visible: false }))}
+        />
       </SafeAreaView>
     );
   }
@@ -354,6 +412,15 @@ export const VideoCallScreen: React.FC<{ route: any; navigation: any }> = ({
           </TouchableOpacity>
         </View>
       </SafeAreaView>
+      <CoveModal
+        visible={modalState.visible}
+        variant={modalState.variant}
+        title={modalState.title}
+        message={modalState.message}
+        primaryAction={modalState.primaryAction || undefined}
+        secondaryAction={modalState.secondaryAction || undefined}
+        onDismiss={() => setModalState((prev) => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 };
@@ -409,7 +476,7 @@ const ctrlStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   circleInactive: {
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
   },
@@ -433,7 +500,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -450,7 +517,7 @@ const styles = StyleSheet.create({
   waitingTime: { ...Typography.body, color: Colors.text.secondary },
   permissionsCard: {
     width: '100%',
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderRadius: Radius.xl,
     padding: Spacing.lg,
     borderWidth: 1,
@@ -475,24 +542,12 @@ const styles = StyleSheet.create({
     gap: Spacing.xl,
     marginBottom: Spacing.xxl,
   },
-  joinBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    width: '100%',
-    paddingVertical: Spacing.md,
-    backgroundColor: Colors.accent.primary,
-    borderRadius: Radius.lg,
-  },
-  joinBtnText: { ...Typography.bodySemibold, color: Colors.text.inverse },
-
-  callContainer: { flex: 1, backgroundColor: '#E9EFEA' },
+  callContainer: { flex: 1, backgroundColor: Colors.bg.tertiary },
   remoteVideo: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#DCE7DE',
+    backgroundColor: Colors.bg.tertiary,
   },
   connectingText: {
     ...Typography.body,
@@ -518,7 +573,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 6,
     borderRadius: Radius.pill,
@@ -536,17 +591,17 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.2)',
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
   },
   localPreviewOff: {
     flex: 1,
-    backgroundColor: '#EBEFEA',
+    backgroundColor: Colors.bg.tertiary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   localPreviewActive: {
     flex: 1,
-    backgroundColor: '#BED1C2',
+    backgroundColor: Colors.stroke.medium,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -597,16 +652,4 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xxl,
     width: '100%',
   },
-  endedBtn: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: Spacing.sm + 2,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.accent.soft,
-  },
-  endedBtnPrimary: {
-    backgroundColor: Colors.accent.primary,
-  },
-  endedBtnText: { ...Typography.bodyEmphasis, color: Colors.accent.primary },
-  endedBtnPrimaryText: { color: Colors.text.inverse },
 });
