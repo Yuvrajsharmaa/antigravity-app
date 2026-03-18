@@ -119,11 +119,6 @@ const styles = StyleSheet.create({
   primaryContainer: {
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.10)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.10,
-    shadowRadius: 10,
-    elevation: 2,
   },
   secondaryContainer: {
     backgroundColor: Colors.ui.glass,

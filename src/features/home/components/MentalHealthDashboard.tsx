@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { Modal, ScrollView, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Typography, Spacing, Radius } from '../../../core/theme';
+import { Colors, Typography, Spacing, Radius, Shadow } from '../../../core/theme';
 import { Card, BackendSetupCard } from '../../../core/components';
 import { useAuth } from '../../../core/context/AuthContext';
 import { supabase } from '../../../services/supabase';
@@ -545,11 +545,7 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     backgroundColor: Colors.ui.glass,
     borderRadius: Radius.xl,
-    shadowColor: Colors.stroke.medium,
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    ...Shadow.card,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
   },

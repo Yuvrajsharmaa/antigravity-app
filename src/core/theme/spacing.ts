@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 export const Spacing = {
   xxs: 4,
   xs: 8,
@@ -20,18 +22,42 @@ export const Radius = {
 } as const;
 
 export const Shadow = {
-  card: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  subtle: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 5,
-    elevation: 1,
-  },
+  card: Platform.select({
+    ios: {
+      shadowColor: '#0F172A',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.07,
+      shadowRadius: 16,
+    },
+    android: {
+      elevation: 3,
+      shadowColor: '#0F172A',
+    },
+    default: {
+      shadowColor: '#0F172A',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.07,
+      shadowRadius: 16,
+      elevation: 3,
+    },
+  }),
+  subtle: Platform.select({
+    ios: {
+      shadowColor: '#0F172A',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.05,
+      shadowRadius: 10,
+    },
+    android: {
+      elevation: 1,
+      shadowColor: '#0F172A',
+    },
+    default: {
+      shadowColor: '#0F172A',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.05,
+      shadowRadius: 10,
+      elevation: 1,
+    },
+  }),
 } as const;
