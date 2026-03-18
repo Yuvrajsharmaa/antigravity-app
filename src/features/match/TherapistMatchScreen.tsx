@@ -707,12 +707,12 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
     const quote = item.therapist.standout_quote?.trim() || 'A steady first session can change a whole week.';
     const prompt = item.therapist.standout_prompt?.trim() || 'What has felt most difficult lately?';
 
-    let primaryLabel = 'Message therapist';
+    let primaryLabel = 'Send intro';
     let primaryDisabled = false;
     let primaryAction = () => openIntroQuestion(item);
 
     if (requestStatus === 'pending') {
-      primaryLabel = 'Request pending';
+      primaryLabel = 'Intro pending';
       primaryDisabled = true;
     } else if (requestStatus === 'accepted') {
       primaryLabel = 'Book 15-min intro';
@@ -774,21 +774,23 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
         ) : null}
 
         <View style={styles.cardActions}>
-          <TouchableOpacity
-            style={styles.secondaryCardBtn}
+          <Button
+            title="Profile"
+            variant="secondary"
+            size="sm"
+            fullWidth={false}
+            style={{ flex: 1 }}
             onPress={() => openTherapistProfile(item)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.secondaryCardBtnText}>View profile</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.primaryCardBtn, primaryDisabled && styles.primaryCardBtnDisabled]}
+          />
+          <Button
+            title={primaryLabel}
+            variant="primary"
+            size="sm"
+            fullWidth={false}
+            style={{ flex: 1 }}
             onPress={primaryAction}
-            activeOpacity={0.85}
             disabled={primaryDisabled}
-          >
-            <Text style={styles.primaryCardBtnText}>{primaryLabel}</Text>
-          </TouchableOpacity>
+          />
         </View>
       </Card>
     );
@@ -988,7 +990,7 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.introBody}>
-                  Send one short question to start. They can accept or decline before you schedule an intro session.
+                  Send one short question to start. If they accept, you can book a 15-minute intro.
                 </Text>
                 <TextInput
                   style={styles.introInput}
@@ -1000,7 +1002,7 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
                 />
                 <View style={styles.introActions}>
                   <Button
-                    title="Cancel"
+                    title="Not now"
                     variant="ghost"
                     onPress={() => setIntroTarget(null)}
                     fullWidth={false}
