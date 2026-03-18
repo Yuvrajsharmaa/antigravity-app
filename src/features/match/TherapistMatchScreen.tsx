@@ -127,7 +127,7 @@ const GENDER_OPTIONS: Array<{ label: string; value: GenderPreference }> = [
 
 const STEP_TITLES = [
   'What support do you need right now?',
-  'Goals and care style',
+  'Goals and support style',
   'Session preferences',
   'Optional refiners',
 ];
@@ -934,7 +934,7 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
             <Text style={styles.kicker}>Matches</Text>
             <Text style={styles.title}>Your best therapist matches</Text>
             <Text style={styles.subtitle}>
-              Start with a short intro message. Once a therapist accepts, you can book a 15-minute intro session.
+              Send one short intro question. After a therapist accepts, book your 15-minute intro session.
             </Text>
             <TouchableOpacity style={styles.editAnswersBtn} onPress={() => setShowResults(false)}>
               <Ionicons name="create-outline" size={16} color={Colors.accent.primary} />
@@ -980,22 +980,22 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
                 </Card>
               ) : null}
 
-	              <ScrollView
-	                horizontal
-	                pagingEnabled
-	                decelerationRate="fast"
-	                showsHorizontalScrollIndicator={false}
-	                style={{ marginBottom: tabSafeBottomPadding }}
-	                contentContainerStyle={styles.deckRow}
-	              >
-	                {topMatches.map((item) => renderMatchCard(item, true))}
-	                {!showMoreMatches ? renderMoreCard() : null}
-	                {visibleAdditionalMatches.map((item) => renderMatchCard(item, false))}
-	                {showMoreMatches ? renderMoreCard() : null}
-	              </ScrollView>
-	            </>
-	          )}
-	        </ScrollView>
+              <ScrollView
+                horizontal
+                pagingEnabled
+                decelerationRate="fast"
+                showsHorizontalScrollIndicator={false}
+                style={{ marginBottom: tabSafeBottomPadding }}
+                contentContainerStyle={styles.deckRow}
+              >
+                {topMatches.map((item) => renderMatchCard(item, true))}
+                {!showMoreMatches ? renderMoreCard() : null}
+                {visibleAdditionalMatches.map((item) => renderMatchCard(item, false))}
+                {showMoreMatches ? renderMoreCard() : null}
+              </ScrollView>
+            </>
+          )}
+        </ScrollView>
       )}
 
       <Modal visible={Boolean(introTarget)} transparent animationType="slide" onRequestClose={dismissIntro}>
@@ -1019,7 +1019,7 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.introBody}>
-                  Send one short question to start. If they accept, you can book a 15-minute intro.
+                  Send one short question to start. If they accept, your next step is to book a 15-minute intro session.
                 </Text>
                 {introError ? <Text style={styles.introError}>{introError}</Text> : null}
                 <TextInput
@@ -1027,7 +1027,7 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
                   multiline
                   value={introQuestion}
                   onChangeText={setIntroQuestion}
-                  placeholder="What would you like help with first?"
+                  placeholder="What should we focus on first?"
                   placeholderTextColor={Colors.text.tertiary}
                 />
                 <View style={styles.introActions}>

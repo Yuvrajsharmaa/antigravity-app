@@ -161,9 +161,9 @@ export const useCareJourney = (userId: string | null | undefined): CareJourneyRe
         },
         {
           key: 'connect',
-          label: 'Connect',
+          label: 'Message therapist',
           completed: hasConnectToday,
-          helper: 'Send one message to stay aligned with care.',
+          helper: 'Send one message to stay aligned with your therapist.',
         },
       ];
 

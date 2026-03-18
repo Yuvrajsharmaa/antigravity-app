@@ -555,6 +555,7 @@ export const TherapistDashboardScreen: React.FC = () => {
             <Text style={styles.sectionAction}>Messages</Text>
           </TouchableOpacity>
         </View>
+        <Text style={styles.sectionSubcopy}>Clients who may benefit from a check-in today.</Text>
 
         {visibleAttentionClients.length === 0 ? (
           <EmptyState
@@ -813,6 +814,12 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { ...Typography.title2, color: Colors.text.primary },
   sectionAction: { ...Typography.bodySemibold, color: Colors.accent.primary },
+  sectionSubcopy: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginTop: -Spacing.xs,
+    marginBottom: Spacing.md,
+  },
   attentionScrollRow: {
     paddingRight: Spacing.md,
     gap: Spacing.md,

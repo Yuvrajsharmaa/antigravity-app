@@ -305,7 +305,7 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
       : null;
     const joinable = baseJoinable && Boolean(joinWindow?.isOpen);
     const joinHint = baseJoinable && !joinable && joinWindow?.minutesUntilOpen
-      ? `Join opens in ${formatMinutesShort(joinWindow.minutesUntilOpen)}`
+      ? `Join opens 5 minutes before start (in ${formatMinutesShort(joinWindow.minutesUntilOpen)}).`
       : null;
     const showConfirm = (isTherapistMode || isDevAdmin) && item.booking_status === 'pending_payment';
     const showPrep =
@@ -424,6 +424,11 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <Text style={styles.screenTitle}>{isTherapistMode ? 'Practice Sessions' : 'Sessions'}</Text>
+      <Text style={styles.screenSubtitle}>
+        {isTherapistMode
+          ? 'Confirm bookings, prep quickly, then join when the room opens.'
+          : 'Review upcoming sessions and join when your session window opens.'}
+      </Text>
 
       <View style={styles.tabRow}>
         <TouchableOpacity
@@ -507,11 +512,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.md,
   },
+  screenSubtitle: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    paddingHorizontal: Spacing.xl,
+    marginTop: Spacing.xs,
+  },
   tabRow: {
     flexDirection: 'row',
     paddingHorizontal: Spacing.xl,
     gap: Spacing.xxs,
-    marginTop: Spacing.md,
+    marginTop: Spacing.sm,
     marginBottom: Spacing.md,
   },
   tab: {

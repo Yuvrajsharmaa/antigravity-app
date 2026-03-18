@@ -12,6 +12,7 @@ import {
   carePatternExplanation,
   calculateCareScoreBreakdown,
   getCarePatternState,
+  getCareScoreRangeMeaning,
 } from '../../../core/utils/careScore';
 import { localDateKey } from '../../../core/utils/date';
 import { getMoodOption, normalizeMoodLabel } from '../../../core/utils/mood';
@@ -234,7 +235,43 @@ export const MentalHealthDashboard: React.FC<{ openSignal?: number }> = ({ openS
   const patternState = scoreBreakdown
     ? getCarePatternState(scoreBreakdown.score, previousScoreSnapshot)
     : null;
+  const scoreRangeMeaning = scoreBreakdown
+    ? getCareScoreRangeMeaning(scoreBreakdown.score)
+    : null;
   const hasLoggedToday = hasCheckInToday && Boolean(latestScoreSnapshot !== null || mood);
+  const scoreStatusLabel = useMemo(() => {
+    if (!scoreRangeMeaning) return 'Pending';
+    if (scoreRangeMeaning.label === 'Stable range') return 'Stable';
+    if (scoreRangeMeaning.label === 'Watchful range') return 'Watchful';
+    return 'High support needed';
+  }, [scoreRangeMeaning]);
+  const scoreActionLine = useMemo(() => {
+    if (!scoreRangeMeaning) return 'Complete today\'s check-in to see your CareScore.';
+    if (scoreRangeMeaning.label === 'Stable range') return 'Keep your routine. One small step is enough.';
+    if (scoreRangeMeaning.label === 'Watchful range') return 'Some strain is showing. Try a quick check-in.';
+    return 'Support may help today. Consider messaging your therapist.';
+  }, [scoreRangeMeaning]);
+  const trendHint = useMemo(() => {
+    if (!patternState || previousScoreSnapshot === null) return null;
+    if (patternState.trend === 'improving') return { icon: 'arrow-up', label: 'Improving' };
+    if (patternState.trend === 'needs-support') return { icon: 'arrow-down', label: 'Needs support' };
+    return { icon: 'remove', label: 'Steady' };
+  }, [patternState, previousScoreSnapshot]);
+  const weakestFactors = useMemo(() => (
+    scoreBreakdown
+      ? [...scoreBreakdown.factors]
+        .sort((a, b) => a.value - b.value)
+        .slice(0, 2)
+      : []
+  ), [scoreBreakdown]);
+  const factorNudges: Record<string, string> = {
+    mood: 'Name one feeling in your check-in and add one short journal line.',
+    stress: 'Pause for one minute and slow your breathing before the next task.',
+    sleep: 'Use a shorter wind-down tonight and aim for a steady bedtime.',
+    energy: 'Choose one low-effort task and finish it fully.',
+    connectedness: 'Send one short message to someone you trust.',
+    coping: 'Repeat one coping action that helped recently.',
+  };
   const moodOption = getMoodOption(mood);
   const moodDisplayText = useMemo(() => {
     const raw = moodOption?.label || normalizeMoodLabel(mood) || 'Not logged';
@@ -278,22 +315,26 @@ export const MentalHealthDashboard: React.FC<{ openSignal?: number }> = ({ openS
             activeOpacity={0.8}
             onPress={() => setShowScoreSheet(true)}
           >
-            <View style={styles.metricCardHeader}>
-              <Ionicons name="heart-half-outline" size={16} color={Colors.accent.dark} />
-              <Text style={[styles.metricCardTitle, styles.metricCardTitleCare]}>CareScore</Text>
-            </View>
-            <View style={styles.scoreContainer}>
+            <View style={styles.metricCardTop}>
+              <View style={styles.metricCardHeader}>
+                <Ionicons name="heart-half-outline" size={16} color={Colors.accent.dark} />
+                <Text style={[styles.metricCardTitle, styles.metricCardTitleCare]}>CareScore</Text>
+              </View>
               <View style={styles.patternPill}>
                 <Text style={styles.patternPillText}>
-                  {patternState ? patternState.label.replace('-', ' ') : 'Pending'}
+                  {scoreStatusLabel}
                 </Text>
               </View>
             </View>
             <Text style={[styles.scoreLabel, styles.scoreLabelCare]}>
-              {patternState
-                ? `Current direction: ${patternState.trend === 'needs-support' ? 'needs support' : patternState.trend}`
-                : 'Log today'}
+              {scoreActionLine}
             </Text>
+            {trendHint ? (
+              <View style={styles.trendRow}>
+                <Ionicons name={trendHint.icon as any} size={14} color={Colors.text.secondary} />
+                <Text style={styles.trendText}>{trendHint.label}</Text>
+              </View>
+            ) : null}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -326,13 +367,13 @@ export const MentalHealthDashboard: React.FC<{ openSignal?: number }> = ({ openS
           </View>
           <View style={styles.logPromptTextContainer}>
             <Text style={styles.logPromptTitle}>Daily check-in</Text>
-            <Text style={styles.logPromptDesc}>Log your mood and mental state for today.</Text>
+            <Text style={styles.logPromptDesc}>Log mood, stress, sleep, and recovery for today.</Text>
           </View>
         </TouchableOpacity>
       )}
 
       <View style={styles.header}>
-        <Text style={styles.sectionTitle}>Mindful Tracker</Text>
+        <Text style={styles.sectionTitle}>Daily details</Text>
         <Ionicons name="ellipsis-horizontal" size={20} color={Colors.text.secondary} />
       </View>
 
@@ -382,23 +423,40 @@ export const MentalHealthDashboard: React.FC<{ openSignal?: number }> = ({ openS
             </View>
 
             <ScrollView contentContainerStyle={styles.scoreSheetContent} showsVerticalScrollIndicator={false}>
-              {patternState ? (
+              {patternState && scoreRangeMeaning ? (
                 <>
-                  <Text style={styles.scoreSheetLead}>
-                    {carePatternExplanation.description}
-                  </Text>
-                  {carePatternExplanation.factors.map((factor) => (
-                    <Card key={factor.id} style={styles.factorCard}>
-                      <Text style={styles.factorTitle}>{factor.title}</Text>
-                      <Text style={styles.factorSummary}>{factor.summary}</Text>
-                    </Card>
-                  ))}
-
+                    <Text style={styles.sheetSectionLabel}>What this means today</Text>
                   <Card style={styles.rangeCard}>
-                    <Text style={styles.rangeLabel}>Current pattern</Text>
-                    <Text style={styles.rangeTitle}>{patternState.label.replace('-', ' ')}</Text>
-                    <Text style={styles.rangeDescription}>{patternState.guidance}</Text>
+                    <Text style={styles.rangeLabel}>CareScore status</Text>
+                    <Text style={styles.rangeTitle}>{scoreStatusLabel}</Text>
+                    <Text style={styles.rangeDescription}>{scoreRangeMeaning.description}</Text>
                   </Card>
+                    <Text style={styles.scoreSheetLead}>{scoreActionLine}</Text>
+
+                    <Text style={styles.sheetSectionLabel}>What's driving it</Text>
+                    {weakestFactors.map((factor) => (
+                      <Card key={factor.id} style={styles.factorCard}>
+                        <Text style={styles.factorTitle}>{factor.label}</Text>
+                        <Text style={styles.factorSummary}>
+                          {factorNudges[factor.id] || factor.summary}
+                        </Text>
+                      </Card>
+                    ))}
+                    <Card style={styles.infoCard}>
+                      <Text style={styles.infoCardTitle}>How CareScore works</Text>
+                      <Text style={styles.infoCardText}>{carePatternExplanation.description}</Text>
+                    </Card>
+                    <TouchableOpacity
+                      style={styles.scoreSheetCta}
+                      onPress={() => {
+                        setShowScoreSheet(false);
+                        setShowModal(true);
+                      }}
+                    >
+                      <Text style={styles.scoreSheetCtaText}>
+                        {hasCheckInToday ? 'Update check-in' : 'Complete today\'s check-in'}
+                      </Text>
+                    </TouchableOpacity>
                 </>
               ) : (
                 <Text style={styles.scoreSheetLead}>
@@ -477,6 +535,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
   },
+  metricCardTop: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.xs,
+  },
   careCard: {
     backgroundColor: Colors.ui.glass,
   },
@@ -520,7 +585,7 @@ const styles = StyleSheet.create({
   patternPillText: {
     ...Typography.captionEmphasis,
     color: Colors.accent.dark,
-    textTransform: 'capitalize',
+    textTransform: 'none',
   },
   moodIconContainer: {
     width: '100%',
@@ -533,6 +598,9 @@ const styles = StyleSheet.create({
   },
   scoreLabelCare: {
     color: Colors.accent.dark,
+    width: '100%',
+    textAlign: 'left',
+    lineHeight: 21,
   },
   scoreLabelMood: {
     color: Colors.text.primary,
@@ -594,6 +662,13 @@ const styles = StyleSheet.create({
   factorSummary: {
     ...Typography.caption,
     color: Colors.text.secondary,
+    lineHeight: 18,
+  },
+  sheetSectionLabel: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.secondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   rangeCard: {
     borderRadius: Radius.xl,
@@ -617,6 +692,43 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     color: Colors.text.secondary,
     lineHeight: 19,
+  },
+  infoCard: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.ui.glass,
+    gap: Spacing.xxs,
+  },
+  infoCardTitle: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.primary,
+  },
+  infoCardText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
+  scoreSheetCta: {
+    marginTop: Spacing.xs,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.accent.primary,
+    paddingVertical: Spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scoreSheetCtaText: {
+    ...Typography.bodySemibold,
+    color: Colors.text.inverse,
+  },
+  trendRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xxs,
+  },
+  trendText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
   },
   trackerRow: {
     flexDirection: 'row',

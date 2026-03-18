@@ -19,10 +19,14 @@ export const WeeklyRhythmGrid: React.FC<{ days: WeeklyRhythmDay[] }> = ({ days }
       isToday && styles.cellTodayRing,
     ];
 
-    const iconColor = done ? Colors.text.inverse : 'transparent';
+    const iconColor = done
+      ? tone === 'care'
+        ? Colors.accent.dark
+        : Colors.status.warning
+      : 'transparent';
     return (
       <View style={cellStyle}>
-        <Ionicons name="checkmark" size={12} color={iconColor} />
+        <Ionicons name="checkmark" size={10} color={iconColor} />
       </View>
     );
   };
@@ -39,7 +43,7 @@ export const WeeklyRhythmGrid: React.FC<{ days: WeeklyRhythmDay[] }> = ({ days }
       </View>
 
       <View style={styles.row}>
-        <Text style={styles.rowLabel}>Care</Text>
+        <Text style={styles.rowLabel}>Check-in</Text>
         {days.map((day, idx) => (
           <View key={`care-${idx}`} style={styles.cellWrap}>
             {renderCell(day.careDone, 'care', day.isToday)}
@@ -59,7 +63,7 @@ export const WeeklyRhythmGrid: React.FC<{ days: WeeklyRhythmDay[] }> = ({ days }
   );
 };
 
-const LABEL_COL = 56;
+const LABEL_COL = 68;
 
 const styles = StyleSheet.create({
   grid: {
@@ -97,22 +101,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    maxWidth: 36,
+    maxWidth: 32,
   },
   cellIdle: {
     backgroundColor: Colors.bg.secondary,
     borderColor: Colors.stroke.medium,
   },
   cellCareDone: {
-    backgroundColor: Colors.accent.primary,
-    borderColor: Colors.accent.dark,
+    backgroundColor: Colors.accent.soft,
+    borderColor: Colors.accent.primary,
   },
   cellJournalDone: {
-    backgroundColor: Colors.status.warning,
+    backgroundColor: Colors.status.warningSoft,
     borderColor: Colors.status.warning,
   },
   cellTodayRing: {
     borderWidth: 2,
-    borderColor: Colors.accent.dark,
   },
 });

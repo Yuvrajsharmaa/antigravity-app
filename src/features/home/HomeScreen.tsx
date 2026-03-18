@@ -22,6 +22,7 @@ import {
 } from '../../core/utils/careBuddy';
 import { formatMinutesShort, getJoinWindowState } from '../../core/utils/date';
 import { getRoleModeContract } from '../../core/utils/roleAccess';
+import { CopyGlossary } from '../../core/constants/copyGlossary';
 import { supabase } from '../../services/supabase';
 import { MentalHealthDashboard } from './components/MentalHealthDashboard';
 import { TherapistDashboardScreen } from '../therapist-dashboard/TherapistDashboardScreen';
@@ -318,7 +319,7 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       >
           {journeyLoading ? (
             <View style={styles.journeyLoadingWrap}>
-              <LoadingState message="Loading your next action..." />
+              <LoadingState message="Loading today's focus..." />
             </View>
           ) : journeyError ? (
             <View style={styles.journeyErrorWrap}>
@@ -329,7 +330,7 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               <View style={styles.nextBestTopRow}>
                 <CoveMascot variant="default" size={40} />
                 <View style={styles.nextBestTextWrap}>
-                  <Text style={styles.nextBestTitle}>Next best action</Text>
+                  <Text style={styles.nextBestTitle}>Today&apos;s focus</Text>
                   <Text style={styles.nextBestSubtitle}>
                     {journey.nextActionLabel}
                   </Text>
@@ -345,7 +346,7 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               <Text style={styles.nextBestReason}>{nextGoalHelper}</Text>
               <View style={styles.weeklyProgressMeta}>
                 <Text style={styles.weeklyProgressText}>
-                  {`This week: Care ${weeklyCareCount}/7 · Journal ${weeklyJournalCount}/7`}
+                  {`This week: Check-ins ${weeklyCareCount}/7 · Journal ${weeklyJournalCount}/7`}
                 </Text>
               </View>
               <WeeklyRhythmGrid
@@ -367,6 +368,12 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             </Card>
           ) : null}
 
+          <Text style={styles.homeModelLine}>
+            {CopyGlossary.homeModel}
+          </Text>
+
+          <MentalHealthDashboard openSignal={checkInSignal} />
+
           <Card style={styles.lockedTherapistCard}>
             <View style={styles.lockedTopRow}>
               <View style={styles.lockedIconWrap}>
@@ -375,7 +382,7 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               <View style={styles.lockedTextWrap}>
                 <Text style={styles.lockedTitle}>Your therapist</Text>
                 <Text style={styles.lockedSubtitle}>
-                  {lockedTherapist ? lockedTherapist.therapist_name : 'No therapist locked yet'}
+                  {lockedTherapist ? lockedTherapist.therapist_name : 'No therapist locked yet. Start in Match.'}
                 </Text>
               </View>
             </View>
@@ -417,8 +424,6 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               )}
             </View>
           </Card>
-
-          <MentalHealthDashboard openSignal={checkInSignal} />
 
           {nextSession ? (
             <Card style={styles.nextSessionCard}>
@@ -663,6 +668,13 @@ const styles = StyleSheet.create({
   weeklyProgressText: {
     ...Typography.caption,
     color: Colors.text.secondary,
+  },
+  homeModelLine: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
   },
   nextBestActions: {
     flexDirection: 'row',

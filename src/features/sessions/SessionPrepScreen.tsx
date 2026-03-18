@@ -189,10 +189,10 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
     ? 'Awaiting therapist confirmation'
     : joinWindowOpen
       ? 'Session ready to join'
-      : 'Join available 5 minutes before start';
+      : 'Join opens 5 minutes before start';
 
   const countdownLabel = useMemo(() => {
-    if (joinWindowOpen) return 'Join window is open';
+    if (joinWindowOpen) return 'Join window is open now';
     const mins = Math.floor(secondsToWindow / 60);
     const secs = secondsToWindow % 60;
     return `Join opens in ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -205,7 +205,7 @@ export const SessionPrepScreen: React.FC<{ route: any; navigation: any }> = ({ r
     }
 
     if (!joinWindowOpen) {
-      showModal('info', 'Too early', 'Join opens 5 minutes before the session starts.');
+      showModal('info', 'Too early', 'Join opens 5 minutes before the session start time.');
       return;
     }
 

@@ -15,7 +15,6 @@ import { ensureConversation, fetchActiveTherapistLock, setTherapistLockAction } 
 export const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const tabBarHeight = useTabSafeBottomPadding(0);
-  const footerBottomPadding = tabBarHeight + Spacing.md;
   const [footerHeight, setFooterHeight] = React.useState(0);
   const {
     profile,
@@ -254,7 +253,7 @@ export const ProfileScreen: React.FC = () => {
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: footerHeight + footerBottomPadding + Spacing.lg }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: footerHeight + tabBarHeight + Spacing.lg }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -382,7 +381,7 @@ export const ProfileScreen: React.FC = () => {
       </ScrollView>
 
       <View
-        style={[styles.footer, { paddingBottom: footerBottomPadding }]}
+        style={[styles.footer, { bottom: tabBarHeight }]}
         onLayout={(e) => {
           const next = Math.round(e.nativeEvent.layout.height);
           setFooterHeight((prev) => (prev === next ? prev : next));
@@ -537,9 +536,13 @@ const styles = StyleSheet.create({
     marginTop: Spacing.lg,
   },
   footer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     borderTopWidth: 1,
     borderTopColor: Colors.stroke.subtle,
     backgroundColor: Colors.bg.primary,
     paddingTop: Spacing.sm,
+    paddingBottom: Spacing.md,
   },
 });

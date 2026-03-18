@@ -90,7 +90,7 @@ const CLIENT_FEATURE_HIGHLIGHTS = [
     color: Colors.semantic.insight,
     soft: Colors.semanticSoft.insight,
     title: 'Track your CareScore',
-    subtitle: 'Log mood, stress, and sleep in under a minute.',
+    subtitle: 'Log a daily check-in: mood, stress, sleep, and recovery.',
   },
   {
     icon: 'timer-outline' as const,
@@ -113,15 +113,15 @@ const THERAPIST_FEATURE_HIGHLIGHTS = [
     icon: 'analytics-outline' as const,
     color: Colors.semantic.insight,
     soft: Colors.semanticSoft.insight,
-    title: 'See care snapshots',
-    subtitle: 'Review recent check-ins before sessions.',
+    title: 'Review check-in snapshots',
+    subtitle: 'See recent client check-ins before each session.',
   },
   {
     icon: 'send-outline' as const,
     color: Colors.semantic.effort,
     soft: Colors.semanticSoft.effort,
-    title: 'Follow up with care',
-    subtitle: 'Use nudges and notes to support continuity.',
+    title: 'Follow up clearly',
+    subtitle: 'Use check-in nudges and notes between sessions.',
   },
 ];
 
@@ -146,7 +146,7 @@ const CLIENT_ONBOARDING_STEPS: OnboardingStepV2[] = [
   { id: 'features', title: 'What You Get', role: 'shared', required: false, optional: true, resumeKey: 'features' },
   { id: 'name', title: 'Your Name', role: 'shared', required: false, optional: true, resumeKey: 'name' },
   { id: 'intent', title: 'What Brings You Here', role: 'shared', required: true, optional: false, resumeKey: 'intent' },
-  { id: 'care-style', title: 'Care Style', role: 'client', required: true, optional: false, resumeKey: 'care_style' },
+  { id: 'care-style', title: 'Support Style', role: 'client', required: true, optional: false, resumeKey: 'care_style' },
   { id: 'session-prefs', title: 'Session Preferences', role: 'shared', required: true, optional: false, resumeKey: 'session_preferences' },
   { id: 'baseline', title: 'Baseline Check-in', role: 'client', required: false, optional: true, resumeKey: 'baseline' },
   { id: 'reminder-consent', title: 'Reminders & Consent', role: 'client', required: true, optional: false, resumeKey: 'reminder_consent' },
@@ -156,7 +156,7 @@ const THERAPIST_ONBOARDING_STEPS: OnboardingStepV2[] = [
   { id: 'intro', title: 'Welcome', role: 'shared', required: false, optional: true, resumeKey: 'intro' },
   { id: 'features', title: 'What You Get', role: 'shared', required: false, optional: true, resumeKey: 'features' },
   { id: 'name', title: 'Your Name', role: 'shared', required: false, optional: true, resumeKey: 'name' },
-  { id: 'focus', title: 'Care Focus', role: 'shared', required: true, optional: false, resumeKey: 'focus' },
+  { id: 'focus', title: 'Client Focus', role: 'shared', required: true, optional: false, resumeKey: 'focus' },
   { id: 'care-style', title: 'Communication Style', role: 'therapist', required: true, optional: false, resumeKey: 'communication_style' },
   { id: 'session-prefs', title: 'Session Preferences', role: 'shared', required: true, optional: false, resumeKey: 'session_preferences' },
   { id: 'practice-profile', title: 'Practice Profile', role: 'therapist', required: false, optional: true, resumeKey: 'practice_profile' },
@@ -172,10 +172,10 @@ const parseTimeToMinutes = (value: string) => {
 };
 
 const stepBubble = (isTherapistFlow: boolean, step: number) => {
-  if (step === 0) return isTherapistFlow ? 'Welcome to Care Space. Let us set up your therapist flow.' : 'Welcome to Care Space. Let us set up your care flow simply.';
+  if (step === 0) return isTherapistFlow ? 'Welcome to Care Space. Let us set up your therapist workflow.' : 'Welcome to Care Space. Let us set up your daily support workflow.';
   if (step === 1) return isTherapistFlow ? 'Here is what Care Space supports each day.' : 'Here is what you can do in Care Space.';
   if (step === 2) return 'Add your first name (optional).';
-  if (step === 3) return isTherapistFlow ? 'Pick your focus areas so clients can find you faster.' : 'Pick up to 2 focus areas so we can match better.';
+  if (step === 3) return isTherapistFlow ? 'Pick your focus areas so clients can find you faster.' : 'Pick up to 2 support areas so we can match you better.';
   if (step === 4) return isTherapistFlow ? 'Choose your communication style.' : 'Choose the support style that feels best for you.';
   if (step === 5) return 'Set your language, session mode, and timing preference.';
   if (step === 6) return isTherapistFlow ? 'Add a quick profile headline.' : 'A quick baseline helps your first session.';
@@ -378,7 +378,7 @@ export const OnboardingScreen: React.FC = () => {
   const proceedHint = useMemo(() => {
     if (canProceed) return '';
     if (step === 3) return isTherapistFlow ? 'Pick at least 1 focus area.' : 'Pick at least 1 reason for support.';
-    if (step === 4) return isTherapistFlow ? 'Choose a communication style.' : 'Choose your preferred care style.';
+    if (step === 4) return isTherapistFlow ? 'Choose a communication style.' : 'Choose your preferred support style.';
     if (step === 5) return 'Choose your preferred session mode to continue.';
     if (step === totalSteps - 1) return isTherapistFlow ? 'Please accept both compliance checks.' : 'Please accept safety and terms.';
     return 'Complete this step to continue.';
@@ -743,7 +743,7 @@ const renderNameStep = () => (
     if (isTherapistFlow) {
       return (
         <Card style={styles.stepCard}>
-          <Text style={styles.stepTitle}>What care areas are you focusing on?</Text>
+          <Text style={styles.stepTitle}>What support areas are you focusing on?</Text>
           <Text style={styles.stepSubtitle}>Pick up to 3 so clients find the right fit quickly.</Text>
           <View style={styles.optionStack}>
             {THERAPIST_SPECIALTIES.map((item) => {

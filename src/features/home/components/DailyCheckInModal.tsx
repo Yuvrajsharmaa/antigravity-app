@@ -365,7 +365,7 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
       showFeedback(
         'success',
         isEditingToday ? 'Check-in updated' : 'Check-in saved',
-        'Your CareScore was updated for today.',
+        'Today\'s check-in and CareScore were updated.',
       );
     } catch (saveError: any) {
       showFeedback('error', 'Could not save', saveError.message || 'Please try again in a moment.');
@@ -441,7 +441,7 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
 
               <View style={styles.helperLine}>
                 <CoveMascot variant="default" size={48} />
-                <Text style={styles.helperText}>Quick check-ins keep your care log clear.</Text>
+                <Text style={styles.helperText}>Quick check-ins keep your daily pattern clear.</Text>
               </View>
 
               {!backendReady ? (
