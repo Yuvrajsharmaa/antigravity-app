@@ -6,18 +6,18 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Card, Avatar, EmptyState, LoadingState, Button, ErrorState } from '../../core/components';
+import { Card, Avatar, EmptyState, LoadingState, Button, ErrorState, CoveModal } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { confirmBookingAndEnsureSession } from '../../core/services/careFlowService';
 import { asDependencyState, describeBlockingDependency, dependenciesReady } from '../../core/utils/flowDependencies';
 import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
+import { CoveModalAction, CoveModalVariant } from '../../core/models/types';
 
 interface SessionItem {
   booking_id: string;
@@ -50,6 +50,21 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    variant: CoveModalVariant;
+    title: string;
+    message: string;
+    primaryAction?: CoveModalAction | null;
+    secondaryAction?: CoveModalAction | null;
+  }>({
+    visible: false,
+    variant: 'info',
+    title: '',
+    message: '',
+    primaryAction: null,
+    secondaryAction: null,
+  });
 
   useEffect(() => {
     const desiredTab = route?.params?.initialTab;
@@ -170,6 +185,29 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
     }, [fetchSessions])
   );
 
+  const showModal = useCallback(
+    (
+      variant: CoveModalVariant,
+      title: string,
+      message: string,
+      primaryAction?: CoveModalAction | null,
+      secondaryAction?: CoveModalAction | null,
+    ) => {
+      setModalState({
+        visible: true,
+        variant,
+        title,
+        message,
+        primaryAction: primaryAction || {
+          label: 'Okay',
+          onPress: () => setModalState((prev) => ({ ...prev, visible: false })),
+        },
+        secondaryAction: secondaryAction || null,
+      });
+    },
+    [],
+  );
+
   const canJoin = (item: SessionItem) => {
     if (item.session_type !== 'video') return false;
     if (item.booking_status !== 'confirmed') return false;
@@ -194,7 +232,7 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
       ),
     ];
     if (!dependenciesReady(deps)) {
-      Alert.alert('Cannot confirm', describeBlockingDependency(deps) || 'Missing required dependency.');
+      showModal('blocking', 'Cannot confirm', describeBlockingDependency(deps) || 'Missing required dependency.');
       return;
     }
 
@@ -210,7 +248,7 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
       if (!liveBooking) throw new Error('Booking not found.');
 
       if (liveBooking.status !== 'pending_payment') {
-        Alert.alert('Already updated', 'This booking is no longer awaiting confirmation.');
+        showModal('info', 'Already updated', 'This booking is no longer awaiting confirmation.');
         await fetchSessions();
         return;
       }
@@ -220,10 +258,10 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
         slotId: liveBooking.slot_id,
       });
 
-      Alert.alert('Booking confirmed', 'The client can now join this session.');
+      showModal('success', 'Booking confirmed', 'The client can now join this session.');
       await fetchSessions();
     } catch (err: any) {
-      Alert.alert('Confirmation failed', err.message || 'Something went wrong while confirming.');
+      showModal('error', 'Confirmation failed', err.message || 'Something went wrong while confirming.');
     } finally {
       setActionLoadingId(null);
     }
@@ -289,8 +327,13 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
         {(showPrep || joinable) && (
           <View style={styles.sessionActionsRow}>
             {showPrep && (
-              <TouchableOpacity
-                style={styles.prepBtn}
+              <Button
+                title="Session prep"
+                variant="secondary"
+                size="md"
+                fullWidth={false}
+                style={{ flex: 1 }}
+                icon={<Ionicons name="sparkles-outline" size={16} color={Colors.text.primary} />}
                 onPress={() =>
                   navigation.navigate('SessionPrep', {
                     session: {
@@ -308,15 +351,17 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
                     },
                   })
                 }
-              >
-                <Ionicons name="sparkles-outline" size={16} color={Colors.text.primary} />
-                <Text style={styles.prepBtnText}>Session prep</Text>
-              </TouchableOpacity>
+              />
             )}
 
             {joinable && (
-              <TouchableOpacity
-                style={styles.joinBtn}
+              <Button
+                title="Join session"
+                variant="primary"
+                size="md"
+                fullWidth={false}
+                style={{ flex: 1 }}
+                icon={<Ionicons name="videocam" size={18} color={Colors.text.inverse} />}
                 onPress={() =>
                   navigation.navigate('VideoCall', {
                     session: {
@@ -334,10 +379,7 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
                     },
                   })
                 }
-              >
-                <Ionicons name="videocam" size={18} color={Colors.text.inverse} />
-                <Text style={styles.joinBtnText}>Join session</Text>
-              </TouchableOpacity>
+              />
             )}
           </View>
         )}
@@ -418,6 +460,16 @@ export const SessionsScreen: React.FC<{ navigation: any; route: any }> = ({ navi
           }
         />
       )}
+
+      <CoveModal
+        visible={modalState.visible}
+        variant={modalState.variant}
+        title={modalState.title}
+        message={modalState.message}
+        primaryAction={modalState.primaryAction || undefined}
+        secondaryAction={modalState.secondaryAction || undefined}
+        onDismiss={() => setModalState((prev) => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 };
@@ -442,7 +494,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: Spacing.sm,
     borderRadius: Radius.md,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
   },

@@ -8,32 +8,69 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius } from '../../core/theme';
-import { Avatar, Card, ErrorState } from '../../core/components';
+import { Avatar, Button, Card, CoveModal, ErrorState } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { supabase } from '../../services/supabase';
 import { moderateMessage } from '../../core/utils/moderation';
-import { ChatMessage } from '../../core/models/types';
-import { careBuddyLine } from '../../core/utils/careBuddy';
+import { ChatMessage, CoveModalAction, CoveModalVariant, RiskLevel } from '../../core/models/types';
 import { ChatRouteParams } from '../../navigation/types';
+import { createCareNudgeEvent, getNudgeCooldownState } from '../../core/services/careFlowService';
+import { therapistNudgePrefill } from '../../core/utils/careBuddy';
+import { navigateBackSafe } from '../../navigation/safeBack';
 
 export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
-  const { conversationId, therapistName, therapistAvatar, therapistId } = (route.params || {}) as ChatRouteParams;
-  const { user } = useAuth();
+  const { conversationId, therapistName, therapistAvatar, therapistId, attentionCue } = (route.params || {}) as ChatRouteParams;
+  const { user, isTherapistMode } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [showCrisisCard, setShowCrisisCard] = useState(false);
   const [blockedWarning, setBlockedWarning] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [cueDismissed, setCueDismissed] = useState(false);
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    variant: CoveModalVariant;
+    title: string;
+    message: string;
+    primaryAction?: CoveModalAction | null;
+    secondaryAction?: CoveModalAction | null;
+  }>({
+    visible: false,
+    variant: 'info',
+    title: '',
+    message: '',
+    primaryAction: null,
+    secondaryAction: null,
+  });
   const flatListRef = useRef<FlatList>(null);
+
+  const showModal = (
+    variant: CoveModalVariant,
+    title: string,
+    message: string,
+    primaryAction?: CoveModalAction | null,
+    secondaryAction?: CoveModalAction | null,
+  ) => {
+    setModalState({
+      visible: true,
+      variant,
+      title,
+      message,
+      primaryAction: primaryAction || {
+        label: 'Okay',
+        onPress: () => setModalState((prev) => ({ ...prev, visible: false })),
+      },
+      secondaryAction: secondaryAction || null,
+    });
+  };
 
   useEffect(() => {
     if (!conversationId) return;
@@ -127,11 +164,69 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({
         });
       }
     } catch (err) {
-      Alert.alert('Error', 'Failed to send message. Please try again.');
+      showModal('error', 'Error', 'Failed to send message. Please try again.');
     } finally {
       setSending(false);
     }
   };
+
+  const sendAttentionNudge = async () => {
+    if (!isTherapistMode || !user?.id || !therapistId || !conversationId) return;
+
+    const riskLevel: RiskLevel = attentionCue?.riskLevel || 'medium';
+    try {
+      const cooldown = await getNudgeCooldownState({
+        userId: therapistId,
+        therapistId: user.id,
+        source: 'therapist_manual',
+        cooldownHours: 24,
+      });
+      if (cooldown.isBlocked) {
+        showModal('info', 'Cooldown active', 'A manual nudge was already sent in the last 24 hours.');
+        return;
+      }
+
+      const name = therapistName || 'there';
+      const reason = attentionCue?.overdueCheckIn
+        ? 'No recent check-in logged'
+        : attentionCue?.recentMood
+          ? `Recent mood noted as ${attentionCue.recentMood}`
+          : 'Recent pattern needs attention';
+      const body = `Hi ${name}, ${therapistNudgePrefill(riskLevel, reason)}`;
+
+      await supabase.from('messages').insert({
+        conversation_id: conversationId,
+        sender_id: user.id,
+        body,
+        message_type: 'text',
+      });
+      await supabase
+        .from('conversations')
+        .update({ last_message_at: new Date().toISOString() })
+        .eq('id', conversationId);
+
+      await createCareNudgeEvent({
+        userId: therapistId,
+        therapistId: user.id,
+        triggerType: 'therapist_checkin',
+        riskLevel,
+        source: 'therapist_manual',
+        messagePreview: body,
+      });
+      setCueDismissed(true);
+      showModal('success', 'Nudge sent', 'Supportive follow-up has been sent.');
+    } catch {
+      showModal('error', 'Unable to send', 'Try again in a moment.');
+    }
+  };
+
+  const cueTitle = attentionCue?.overdueCheckIn
+    ? 'Check-in may be overdue'
+    : attentionCue?.riskLevel === 'high'
+      ? 'Client may need quick support'
+      : attentionCue?.riskLevel === 'medium'
+        ? 'Recent check-ins may need attention'
+        : null;
 
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isMe = item.sender_id === user?.id;
@@ -158,26 +253,122 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ErrorState
           message="Conversation details are missing. Return to Messages and open chat again."
-          onRetry={() => navigation.goBack()}
+          onRetry={() => navigateBackSafe(navigation, 'MessagesList')}
         />
       </SafeAreaView>
     );
   }
 
+  const openChatProfile = async () => {
+    if (!therapistId) return;
+    if (isTherapistMode) {
+      const parentNav = navigation.getParent();
+      if (parentNav) {
+        parentNav.navigate('HomeTab', {
+          screen: 'ClientDetail',
+          params: {
+            clientId: therapistId,
+            clientName: therapistName || 'Client',
+          },
+        });
+      } else {
+        navigation.navigate('ClientDetail', {
+          clientId: therapistId,
+          clientName: therapistName || 'Client',
+        });
+      }
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('therapists')
+        .select(`
+          *,
+          profiles!inner (display_name, avatar_url, first_name)
+        `)
+        .eq('id', therapistId)
+        .maybeSingle();
+
+      if (error || !data) {
+        showModal('error', 'Profile unavailable', 'Unable to open therapist profile right now.');
+        return;
+      }
+
+      const tProfile = Array.isArray((data as any).profiles)
+        ? (data as any).profiles[0]
+        : (data as any).profiles;
+
+      const therapist = {
+        ...data,
+        display_name: tProfile?.display_name || tProfile?.first_name || therapistName || 'Therapist',
+        avatar_url: tProfile?.avatar_url || therapistAvatar || null,
+        first_name: tProfile?.first_name || null,
+      };
+
+      const parentNav = navigation.getParent();
+      if (parentNav) {
+        parentNav.navigate('MatchTab', {
+          screen: 'TherapistProfile',
+          params: { therapist },
+        });
+        return;
+      }
+
+      navigation.navigate('TherapistProfile', { therapist });
+    } catch {
+      showModal('error', 'Profile unavailable', 'Unable to open therapist profile right now.');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigateBackSafe(navigation, 'MessagesList')}>
           <Ionicons name="chevron-back" size={22} color={Colors.text.primary} />
         </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.headerProfileTouch}
+          onPress={openChatProfile}
+          activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel="Open profile"
+        >
         <Avatar uri={therapistAvatar} name={therapistName} size={36} />
         <View style={styles.headerText}>
           <Text style={styles.headerName}>{therapistName}</Text>
-          <Text style={styles.headerStatus}>Online</Text>
+          <Text style={styles.headerStatus}>{isTherapistMode ? 'View client profile' : 'View profile'}</Text>
         </View>
+        </TouchableOpacity>
         <View style={{ flex: 1 }} />
       </View>
+
+      {isTherapistMode && cueTitle && !cueDismissed ? (
+        <Card style={styles.attentionCard}>
+          <View style={styles.attentionHeader}>
+            <Ionicons name="sparkles-outline" size={16} color={Colors.accent.primary} />
+            <Text style={styles.attentionTitle}>{cueTitle}</Text>
+            <TouchableOpacity onPress={() => setCueDismissed(true)}>
+              <Ionicons name="close" size={16} color={Colors.text.tertiary} />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.attentionBody}>
+            {attentionCue?.recentMood
+              ? `Recent mood: ${attentionCue.recentMood}.`
+              : 'Use a short, supportive check-in to reopen the conversation.'}
+          </Text>
+          {attentionCue?.nudgeDue ? (
+            <Button
+              title="Send supportive nudge"
+              onPress={sendAttentionNudge}
+              size="sm"
+              variant="primary"
+              fullWidth={false}
+              style={{ alignSelf: 'flex-start', marginTop: 2 }}
+            />
+          ) : null}
+        </Card>
+      ) : null}
 
       {/* Crisis card */}
       {showCrisisCard && (
@@ -234,7 +425,7 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({
         {blockedWarning === '' && (
           <View style={styles.coachBanner}>
             <Ionicons name="leaf-outline" size={14} color={Colors.accent.primary} />
-            <Text style={styles.coachText}>{careBuddyLine('reflect')}</Text>
+            <Text style={styles.coachText}>Keep messages clear so care stays aligned.</Text>
           </View>
         )}
 
@@ -258,6 +449,16 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      <CoveModal
+        visible={modalState.visible}
+        variant={modalState.variant}
+        title={modalState.title}
+        message={modalState.message}
+        primaryAction={modalState.primaryAction || undefined}
+        secondaryAction={modalState.secondaryAction || undefined}
+        onDismiss={() => setModalState((prev) => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 };
@@ -273,11 +474,37 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: Colors.stroke.subtle,
-    backgroundColor: Colors.bg.tertiary,
+    backgroundColor: Colors.ui.glass,
   },
   headerText: { marginLeft: 4 },
+  headerProfileTouch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   headerName: { ...Typography.bodySemibold, color: Colors.text.primary },
-  headerStatus: { ...Typography.caption, color: Colors.status.success },
+  headerStatus: { ...Typography.caption, color: Colors.text.secondary },
+  attentionCard: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    gap: Spacing.xs,
+    backgroundColor: Colors.accent.soft,
+    borderColor: Colors.accent.primary + '35',
+  },
+  attentionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  attentionTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.accent.dark,
+    flex: 1,
+  },
+  attentionBody: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
   messagesList: {
     paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.md,
@@ -312,7 +539,7 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 10,
   },
   bubbleThem: {
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     borderBottomLeftRadius: 10,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
@@ -373,11 +600,11 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderTopWidth: 1,
     borderTopColor: Colors.stroke.subtle,
-    backgroundColor: Colors.bg.tertiary,
+    backgroundColor: Colors.ui.glass,
   },
   composerInput: {
     flex: 1,
-    backgroundColor: Colors.bg.primary,
+    backgroundColor: 'rgba(255,255,255,0.92)',
     borderRadius: Radius.lg,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,

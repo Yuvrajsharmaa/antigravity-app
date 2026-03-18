@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,12 +10,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { Card, ErrorState, LoadingState } from '../../core/components';
+import { Button, Card, CoveMascot, CoveModal, ErrorState, LoadingState } from '../../core/components';
 import { useAuth } from '../../core/context/AuthContext';
 import { useCareJourney } from '../../core/hooks/useCareJourney';
 import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
+import { ActiveTherapistLock } from '../../core/models/types';
+import { ensureConversation, fetchActiveTherapistLock } from '../../core/services/careFlowService';
 import { Colors, Radius, Spacing, Typography } from '../../core/theme';
-import { careBuddyGreeting, careBuddyLine, journeyStatusCopy } from '../../core/utils/careBuddy';
+import {
+  getCarePersonalityState,
+} from '../../core/utils/careBuddy';
 import { getRoleModeContract } from '../../core/utils/roleAccess';
 import { supabase } from '../../services/supabase';
 import { MentalHealthDashboard } from './components/MentalHealthDashboard';
@@ -28,8 +31,10 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const roleMode = getRoleModeContract(profile?.role, isTherapistMode);
   const effectiveTherapistMode = roleMode.canUseTherapistMode && isTherapistMode;
   const [nextSession, setNextSession] = useState<any | null>(null);
+  const [lockedTherapist, setLockedTherapist] = useState<ActiveTherapistLock | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [checkInSignal, setCheckInSignal] = useState(0);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
 
   const {
     journey,
@@ -38,13 +43,45 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     refresh: refreshJourney,
   } = useCareJourney(effectiveTherapistMode ? null : user?.id || null);
 
-  const journeyCopy = useMemo(
-    () => (journey ? journeyStatusCopy(journey) : null),
+  const personalityState = useMemo(
+    () => (journey ? getCarePersonalityState({
+      completedCount: journey.completedCount,
+      totalCount: journey.totalCount,
+      repairsAvailable: journey.rhythm.repairsAvailable,
+    }) : null),
     [journey],
   );
 
+  const weeklyCalendar = useMemo(() => {
+    if (journey?.rhythm.weekMarkers?.length) {
+      return journey.rhythm.weekMarkers.map((item) => ({
+        dateKey: item.dateKey,
+        label: item.dayLabel.slice(0, 1),
+        completed: item.completed,
+        isToday: item.isToday,
+      }));
+    }
+    const today = new Date();
+    return Array.from({ length: 7 }).map((_, index) => {
+      const date = new Date(today);
+      date.setHours(0, 0, 0, 0);
+      date.setDate(today.getDate() - (6 - index));
+      return {
+        dateKey: `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`,
+        label: date.toLocaleDateString([], { weekday: 'short' }).slice(0, 1),
+        completed: false,
+        isToday: index === 6,
+      };
+    });
+  }, [journey?.rhythm.weekMarkers]);
+
+  const weeklyCompletionCount = useMemo(
+    () => weeklyCalendar.filter((day) => day.completed).length,
+    [weeklyCalendar],
+  );
+
   const fetchNextSession = useCallback(async () => {
-    if (!user || effectiveTherapistMode) {
+    if (!user?.id || effectiveTherapistMode) {
       setNextSession(null);
       return;
     }
@@ -95,18 +132,34 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       status: session?.status || 'scheduled',
       video_call_id: session?.video_call_id || null,
     });
-  }, [effectiveTherapistMode, user]);
+  }, [effectiveTherapistMode, user?.id]);
+
+  const fetchLockState = useCallback(async () => {
+    if (!user?.id || effectiveTherapistMode) {
+      setLockedTherapist(null);
+      return;
+    }
+    try {
+      const lock = await fetchActiveTherapistLock(user.id);
+      setLockedTherapist(lock);
+    } catch {
+      setLockedTherapist(null);
+    }
+  }, [effectiveTherapistMode, user?.id]);
 
   useEffect(() => {
-    fetchNextSession();
-  }, [fetchNextSession]);
+    Promise.all([fetchNextSession(), fetchLockState()]).catch(() => {
+      // Best effort.
+    });
+  }, [fetchLockState, fetchNextSession]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    Promise.all([fetchNextSession(), refreshJourney()]).finally(() => setRefreshing(false));
+    Promise.all([fetchNextSession(), refreshJourney(), fetchLockState()])
+      .finally(() => setRefreshing(false));
   };
 
-  const handleJourneyGoal = async (goalKey: 'check_in' | 'reflect' | 'connect') => {
+  const handleJourneyGoal = async (goalKey: 'check_in' | 'journal' | 'connect') => {
     await Haptics.selectionAsync();
 
     if (goalKey === 'check_in') {
@@ -114,7 +167,7 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       return;
     }
 
-    if (goalKey === 'reflect') {
+    if (goalKey === 'journal') {
       navigation.navigate('Journal');
       return;
     }
@@ -128,7 +181,7 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
     if (!nextGoal) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Great rhythm', 'You completed your care journey for today.');
+      setShowCompletionModal(true);
       return;
     }
 
@@ -142,6 +195,66 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     return 'Good evening';
   };
 
+  const openLockedChat = async () => {
+    if (!user?.id || !lockedTherapist?.therapist_id) return;
+    try {
+      const conversationId = await ensureConversation({
+        userId: user.id,
+        therapistId: lockedTherapist.therapist_id,
+      });
+      navigation.navigate('MessagesTab', {
+        screen: 'Chat',
+        params: {
+          conversationId,
+          therapistName: lockedTherapist.therapist_name,
+          therapistAvatar: lockedTherapist.therapist_avatar,
+          therapistId: lockedTherapist.therapist_id,
+        },
+      });
+    } catch {
+      // No-op: chat bootstrap can be retried from Messages list.
+    }
+  };
+
+  const openMatchFlow = () => {
+    const parentNav = navigation.getParent();
+    if (parentNav) {
+      parentNav.navigate('MatchTab', { screen: 'TherapistMatch' });
+      return;
+    }
+    navigation.navigate('MatchTab', { screen: 'TherapistMatch' });
+  };
+
+  const openLockedTherapistProfile = async () => {
+    if (!lockedTherapist?.therapist_id) return;
+    try {
+      const { data, error } = await supabase
+        .from('therapists')
+        .select(`
+          *,
+          profiles!inner (display_name, avatar_url, first_name)
+        `)
+        .eq('id', lockedTherapist.therapist_id)
+        .maybeSingle();
+
+      if (error || !data) return;
+      const p = Array.isArray((data as any).profiles) ? (data as any).profiles[0] : (data as any).profiles;
+      const therapist = {
+        ...data,
+        display_name: p?.display_name || p?.first_name || lockedTherapist.therapist_name,
+        avatar_url: p?.avatar_url || lockedTherapist.therapist_avatar,
+        first_name: p?.first_name || null,
+      };
+
+      navigation.navigate('MatchTab', {
+        screen: 'TherapistProfile',
+        params: { therapist },
+      });
+    } catch {
+      // Best effort.
+    }
+  };
+
   if (effectiveTherapistMode) {
     return <TherapistDashboardScreen />;
   }
@@ -151,9 +264,14 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>{getGreeting()},</Text>
-          <Text style={styles.userName}>{profile?.first_name || 'there'} 👋</Text>
+          <Text style={styles.userName}>{profile?.first_name || 'there'}</Text>
         </View>
-        <TouchableOpacity style={styles.notifBtn} onPress={() => navigation.navigate('HomeNotifications')}>
+        <TouchableOpacity
+          style={styles.notifBtn}
+          onPress={() => navigation.navigate('HomeNotifications')}
+          accessibilityRole="button"
+          accessibilityLabel="Open notifications"
+        >
           <Ionicons name="notifications-outline" size={22} color={Colors.text.primary} />
         </TouchableOpacity>
       </View>
@@ -162,87 +280,127 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: tabSafeBottomPadding }]}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent.primary} />
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent.primary} />
         }
       >
-          <MentalHealthDashboard openSignal={checkInSignal} />
-
           {journeyLoading ? (
             <View style={styles.journeyLoadingWrap}>
-              <LoadingState message="Loading Care Rhythm..." />
+              <LoadingState message="Loading your next action..." />
             </View>
           ) : journeyError ? (
             <View style={styles.journeyErrorWrap}>
               <ErrorState message={journeyError} onRetry={refreshJourney} />
             </View>
-          ) : journey ? (
-            <Card style={styles.journeyCard}>
-              <View style={styles.journeyHeader}>
-                <View style={styles.journeyIcon}>
-                  <Ionicons name="leaf-outline" size={20} color={Colors.accent.primary} />
+          ) : personalityState && journey ? (
+            <Card style={styles.nextBestCard}>
+              <View style={styles.nextBestTopRow}>
+                <CoveMascot variant="default" size={40} />
+                <View style={styles.nextBestTextWrap}>
+                  <Text style={styles.nextBestTitle}>Next best action</Text>
+                  <Text style={styles.nextBestSubtitle}>
+                    {journey.nextActionLabel}
+                  </Text>
                 </View>
-                <View style={styles.journeyHeaderText}>
-                  <Text style={styles.journeyTitle}>{journeyCopy?.title || 'Daily Care Journey'}</Text>
-                  <Text style={styles.journeySubtitle}>{careBuddyGreeting(profile?.first_name)}</Text>
-                </View>
-                <View style={styles.rhythmFlame}>
-                  <Text style={styles.rhythmFlameEmoji}>🔥</Text>
-                  <Text style={styles.rhythmFlameValue}>{journey.rhythm.currentStreak}</Text>
-                </View>
+                {journey ? (
+                  <View style={styles.rhythmPill}>
+                    <Text style={styles.rhythmPillText}>
+                      {journey.rhythm.currentStreak} day{journey.rhythm.currentStreak === 1 ? '' : 's'}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
-
-              <Text style={styles.journeySupportText}>{journeyCopy?.subtitle || careBuddyLine('coach')}</Text>
-
-              <View style={styles.rhythmWeekRow}>
-                {journey.rhythm.weekMarkers.map((marker) => (
-                  <View key={marker.dateKey} style={styles.rhythmDayWrap}>
+              <View style={styles.weeklyProgressMeta}>
+                <Text style={styles.weeklyProgressText}>
+                  {`${weeklyCompletionCount}/7 days with activity`}
+                </Text>
+              </View>
+              <View style={styles.weeklyStrip}>
+                {weeklyCalendar.map((day) => (
+                  <View key={day.dateKey} style={styles.weeklyDay}>
+                    <Text style={styles.weeklyDayLabel}>{day.label}</Text>
                     <View
                       style={[
-                        styles.rhythmDayDot,
-                        marker.completed && styles.rhythmDayDotDone,
-                        marker.isToday && styles.rhythmDayDotToday,
+                        styles.weeklyDayDot,
+                        day.completed && styles.weeklyDayDotDone,
+                        day.isToday && styles.weeklyDayDotToday,
                       ]}
-                    >
-                      {marker.completed ? <Ionicons name="checkmark" size={10} color={Colors.text.inverse} /> : null}
-                    </View>
-                    <Text style={styles.rhythmDayLabel}>{marker.dayLabel}</Text>
+                    />
                   </View>
                 ))}
               </View>
-
-              <View style={styles.rhythmMetaRow}>
-                <Text style={styles.rhythmMetaText}>Best rhythm: {journey.rhythm.highestStreak} days</Text>
-                {journey.rhythm.repairsAvailable > 0 ? (
-                  <Text style={styles.rhythmRepairText}>Repair available today</Text>
-                ) : null}
+              <View style={styles.nextBestActions}>
+                <Button
+                  title="Continue"
+                  onPress={handleNextJourneyAction}
+                  variant="primary"
+                  size="md"
+                  fullWidth={false}
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  title="Matches"
+                  onPress={openMatchFlow}
+                  variant="secondary"
+                  size="md"
+                  fullWidth={false}
+                  style={{ flex: 1 }}
+                />
               </View>
-
-              <View style={styles.journeyGoalRow}>
-                {journey.goals.map((goal) => (
-                  <TouchableOpacity
-                    key={goal.key}
-                    style={[styles.journeyGoalChip, goal.completed && styles.journeyGoalChipDone]}
-                    onPress={() => handleJourneyGoal(goal.key)}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons
-                      name={goal.completed ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={16}
-                      color={goal.completed ? Colors.status.success : Colors.text.tertiary}
-                    />
-                    <Text style={[styles.journeyGoalText, goal.completed && styles.journeyGoalTextDone]}>
-                      {goal.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <TouchableOpacity style={styles.journeyActionBtn} onPress={handleNextJourneyAction} activeOpacity={0.85}>
-                <Text style={styles.journeyActionText}>Next: {journey.nextActionLabel}</Text>
-                <Ionicons name="arrow-forward" size={16} color={Colors.text.inverse} />
-              </TouchableOpacity>
             </Card>
           ) : null}
+
+          <Card style={styles.lockedTherapistCard}>
+            <View style={styles.lockedTopRow}>
+              <View style={styles.lockedIconWrap}>
+                <Ionicons name={lockedTherapist ? 'checkmark-circle-outline' : 'person-add-outline'} size={18} color={Colors.accent.primary} />
+              </View>
+              <View style={styles.lockedTextWrap}>
+                <Text style={styles.lockedTitle}>Your therapist</Text>
+                <Text style={styles.lockedSubtitle}>
+                  {lockedTherapist ? lockedTherapist.therapist_name : 'No therapist locked yet'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.lockedActions}>
+              {lockedTherapist ? (
+                <>
+                  <Button
+                    title="Message"
+                    onPress={openLockedChat}
+                    variant="primary"
+                    size="sm"
+                    fullWidth={false}
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    title="Book"
+                    onPress={openLockedTherapistProfile}
+                    variant="secondary"
+                    size="sm"
+                    fullWidth={false}
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    title="Manage"
+                    onPress={() => navigation.navigate('ProfileTab')}
+                    variant="ghost"
+                    size="sm"
+                    fullWidth={false}
+                    style={{ flex: 1 }}
+                  />
+                </>
+              ) : (
+                <Button
+                  title="Find therapist"
+                  onPress={openMatchFlow}
+                  variant="primary"
+                  size="md"
+                />
+              )}
+            </View>
+          </Card>
+
+          <MentalHealthDashboard openSignal={checkInSignal} />
 
           {nextSession ? (
             <Card style={styles.nextSessionCard}>
@@ -263,63 +421,66 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               </View>
 
               <View style={styles.nextSessionActions}>
-                <TouchableOpacity
-                  style={[styles.actionBtnOutline, styles.nextSessionActionBtn]}
+                <Button
+                  title="Session prep"
                   onPress={() => navigation.navigate('SessionPrep', { session: nextSession })}
-                >
-                  <Text style={styles.actionBtnTextOutline}>Session prep</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionBtnPrimary, styles.nextSessionActionBtn]}
+                  variant="secondary"
+                  size="md"
+                  fullWidth={false}
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  title="Join"
                   onPress={() => navigation.navigate('VideoCall', { session: nextSession })}
-                >
-                  <Text style={styles.actionBtnText}>Join</Text>
-                </TouchableOpacity>
+                  variant="primary"
+                  size="md"
+                  fullWidth={false}
+                  style={{ flex: 1 }}
+                />
               </View>
             </Card>
           ) : null}
 
-          <Text style={styles.sectionTitle}>Today in Care Space</Text>
-
-          <Card style={styles.actionCard}>
-            <View style={[styles.actionIconContainer, { backgroundColor: Colors.accent.soft }]}>
-              <Ionicons name="sparkles-outline" size={22} color={Colors.accent.primary} />
-            </View>
-            <View style={styles.actionContent}>
-              <Text style={styles.actionTitle}>Find your therapist fit</Text>
-              <Text style={styles.actionDesc}>Answer a short form to get your best 3 therapist matches.</Text>
-            </View>
-            <TouchableOpacity style={styles.actionBtnPrimary} onPress={() => navigation.navigate('MatchTab')}>
-              <Text style={styles.actionBtnText}>Match</Text>
+          <View style={styles.quickActionsRow}>
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              onPress={() => navigation.navigate('MessagesTab')}
+              accessibilityRole="button"
+              accessibilityLabel="Open messages"
+            >
+              <View style={styles.actionIconContainer}>
+                <Ionicons name="chatbubble-ellipses-outline" size={22} color={Colors.accent.primary} />
+              </View>
+              <Text style={styles.quickActionTitle}>Messages</Text>
+              <Text style={styles.quickActionDesc}>Latest therapist chat</Text>
             </TouchableOpacity>
-          </Card>
 
-          <Card style={styles.actionCard}>
-            <View style={styles.actionIconContainer}>
-              <Ionicons name="chatbubble-ellipses-outline" size={22} color={Colors.accent.primary} />
-            </View>
-            <View style={styles.actionContent}>
-              <Text style={styles.actionTitle}>Therapist check-in</Text>
-              <Text style={styles.actionDesc}>Respond to your latest message in under a minute.</Text>
-            </View>
-            <TouchableOpacity style={styles.actionBtnOutline} onPress={() => navigation.navigate('MessagesTab')}>
-              <Text style={styles.actionBtnTextOutline}>Reply</Text>
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              onPress={() => navigation.navigate('Journal')}
+              accessibilityRole="button"
+              accessibilityLabel="Open journal"
+            >
+              <View style={[styles.actionIconContainer, { backgroundColor: Colors.status.warningSoft }]}>
+                <Ionicons name="journal-outline" size={22} color={Colors.status.warning} />
+              </View>
+              <Text style={styles.quickActionTitle}>Journal</Text>
+              <Text style={styles.quickActionDesc}>Write today clearly</Text>
             </TouchableOpacity>
-          </Card>
-
-          <Card style={styles.actionCard}>
-            <View style={[styles.actionIconContainer, { backgroundColor: Colors.status.warningSoft }]}>
-              <Ionicons name="journal-outline" size={22} color={Colors.status.warning} />
-            </View>
-            <View style={styles.actionContent}>
-              <Text style={styles.actionTitle}>Daily journal</Text>
-              <Text style={styles.actionDesc}>Capture one thought so your progress stays visible.</Text>
-            </View>
-            <TouchableOpacity style={styles.actionBtnOutline} onPress={() => navigation.navigate('Journal')}>
-              <Text style={styles.actionBtnTextOutline}>Reflect</Text>
-            </TouchableOpacity>
-          </Card>
+          </View>
       </ScrollView>
+
+      <CoveModal
+        visible={showCompletionModal}
+        variant="success"
+        title="Today is complete"
+        message="You’ve finished today’s key actions. Come back tomorrow."
+        primaryAction={{
+          label: 'Done',
+          onPress: () => setShowCompletionModal(false),
+        }}
+        onDismiss={() => setShowCompletionModal(false)}
+      />
     </SafeAreaView>
   );
 };
@@ -349,7 +510,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: Radius.lg,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -358,8 +519,177 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 108,
   },
+  nextBestCard: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.xs,
+    gap: Spacing.sm,
+  },
+  nextBestTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  nextBestTextWrap: {
+    flex: 1,
+  },
+  nextBestTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+  },
+  nextBestSubtitle: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginTop: 1,
+  },
+  nextBestBtn: {
+    flex: 1,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.accent.primary,
+    borderWidth: 1,
+    borderColor: Colors.accent.dark,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockedTherapistCard: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.md,
+    gap: Spacing.sm,
+  },
+  lockedTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  lockedIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.bg.tertiary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockedTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+  },
+  lockedSubtitle: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginTop: 1,
+  },
+  lockedTextWrap: {
+    flex: 1,
+  },
+  lockedActions: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  lockedActionBtn: {
+    flex: 1,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.stroke.medium,
+    backgroundColor: Colors.bg.secondary,
+    paddingVertical: Spacing.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockedActionBtnPrimary: {
+    borderColor: Colors.accent.primary,
+    backgroundColor: Colors.accent.primary,
+  },
+  lockedActionBtnFull: {
+    flex: 0,
+    width: '100%',
+  },
+  lockedActionText: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.primary,
+  },
+  lockedActionTextPrimary: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.inverse,
+  },
+  rhythmPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.bg.tertiary,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    paddingHorizontal: Spacing.xs + 2,
+    paddingVertical: 4,
+  },
+  rhythmPillText: {
+    ...Typography.micro,
+    letterSpacing: 0.2,
+    color: Colors.text.secondary,
+  },
+  weeklyProgressMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  weeklyProgressText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
+  weeklyStrip: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Spacing.xs,
+  },
+  weeklyDay: {
+    alignItems: 'center',
+    gap: 5,
+    flex: 1,
+  },
+  weeklyDayLabel: {
+    ...Typography.micro,
+    color: Colors.text.tertiary,
+  },
+  weeklyDayDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: Colors.stroke.medium,
+    backgroundColor: Colors.bg.secondary,
+  },
+  weeklyDayDotDone: {
+    backgroundColor: Colors.accent.primary,
+    borderColor: Colors.accent.primary,
+  },
+  weeklyDayDotToday: {
+    borderColor: Colors.accent.dark,
+    borderWidth: 1.6,
+  },
+  nextBestActions: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  nextBestBtnText: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.inverse,
+  },
+  nextBestBtnSecondary: {
+    flex: 1,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.stroke.medium,
+    backgroundColor: Colors.bg.secondary,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nextBestBtnSecondaryText: {
+    ...Typography.captionEmphasis,
+    color: Colors.text.primary,
+  },
   journeyLoadingWrap: {
-    minHeight: 120,
     marginHorizontal: Spacing.xl,
     marginTop: Spacing.md,
   },
@@ -378,12 +708,11 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   journeyIcon: {
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     borderRadius: Radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.accent.soft,
   },
   journeyHeaderText: {
     flex: 1,
@@ -543,21 +872,29 @@ const styles = StyleSheet.create({
   nextSessionActionBtn: {
     flex: 1,
   },
-  sectionTitle: {
-    ...Typography.captionEmphasis,
-    color: Colors.text.secondary,
-    paddingHorizontal: Spacing.xl,
-    marginTop: Spacing.lg,
-    marginBottom: Spacing.xs,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  actionCard: {
+  quickActionsRow: {
+    marginTop: Spacing.md,
     marginHorizontal: Spacing.xl,
-    marginTop: Spacing.sm,
     flexDirection: 'row',
-    alignItems: 'center',
     gap: Spacing.sm,
+  },
+  quickActionCard: {
+    flex: 1,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: Colors.stroke.subtle,
+    backgroundColor: Colors.bg.secondary,
+    padding: Spacing.md,
+  },
+  quickActionTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text.primary,
+    marginTop: Spacing.sm,
+  },
+  quickActionDesc: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginTop: 2,
   },
   actionIconContainer: {
     width: 44,
@@ -566,18 +903,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Colors.bg.tertiary,
-  },
-  actionContent: {
-    flex: 1,
-  },
-  actionTitle: {
-    ...Typography.bodySemibold,
-    color: Colors.text.primary,
-  },
-  actionDesc: {
-    ...Typography.caption,
-    color: Colors.text.secondary,
-    marginTop: 1,
   },
   actionBtnPrimary: {
     minWidth: 84,
@@ -599,12 +924,12 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.sm,
     borderRadius: Radius.md,
-    backgroundColor: Colors.bg.secondary,
     borderWidth: 1,
-    borderColor: Colors.stroke.subtle,
+    borderColor: Colors.stroke.medium,
+    backgroundColor: Colors.bg.secondary,
   },
   actionBtnTextOutline: {
     ...Typography.captionEmphasis,
-    color: Colors.accent.primary,
+    color: Colors.text.primary,
   },
 });

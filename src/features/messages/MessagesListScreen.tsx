@@ -15,6 +15,8 @@ import { getRoleModeContract } from '../../core/utils/roleAccess';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTabSafeBottomPadding } from '../../core/hooks/useTabSafeBottomPadding';
+import { assessCareRisk } from '../../core/utils/careRisk';
+import { RiskLevel } from '../../core/models/types';
 
 interface ConversationItem {
   id: string;
@@ -26,6 +28,9 @@ interface ConversationItem {
   unread: boolean;
   awaiting_reply: boolean;
   recent_mood: string | null;
+  risk_level: RiskLevel | null;
+  overdue_checkin: boolean;
+  nudge_due: boolean;
 }
 
 export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
@@ -64,7 +69,7 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
         .map((row) => (isTherapistMode ? row.user_id : row.therapist_id))
         .filter((id): id is string => Boolean(id));
 
-      const [{ data: allMessages }, moodResult] = await Promise.all([
+      const [{ data: allMessages }, moodResult, nudgeResult] = await Promise.all([
         supabase
           .from('messages')
           .select('conversation_id,body,sender_id,created_at')
@@ -73,7 +78,16 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
         isTherapistMode && otherIds.length > 0
           ? supabase
               .from('client_metrics')
-              .select('user_id,mood,created_at')
+              .select('user_id,mood,stress_level,sleep_hours,care_score_snapshot,energy_level,connectedness_level,coping_helpfulness,created_at')
+              .in('user_id', otherIds)
+              .order('created_at', { ascending: false })
+          : Promise.resolve({ data: null, error: null } as { data: null; error: null }),
+        isTherapistMode && otherIds.length > 0
+          ? supabase
+              .from('care_nudge_events')
+              .select('user_id,created_at')
+              .eq('therapist_id', user.id)
+              .eq('source', 'therapist_manual')
               .in('user_id', otherIds)
               .order('created_at', { ascending: false })
           : Promise.resolve({ data: null, error: null } as { data: null; error: null }),
@@ -90,10 +104,23 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
       }
 
       const latestMoodByUser = new Map<string, string>();
+      const metricsByUser = new Map<string, any[]>();
       if (!moodResult.error) {
         for (const metric of moodResult.data || []) {
+          const rows = metricsByUser.get(metric.user_id) || [];
+          rows.push(metric);
+          metricsByUser.set(metric.user_id, rows);
           if (!latestMoodByUser.has(metric.user_id)) {
             latestMoodByUser.set(metric.user_id, metric.mood);
+          }
+        }
+      }
+
+      const latestNudgeByUser = new Map<string, string>();
+      if (!nudgeResult.error) {
+        for (const event of nudgeResult.data || []) {
+          if (!latestNudgeByUser.has(event.user_id)) {
+            latestNudgeByUser.set(event.user_id, event.created_at);
           }
         }
       }
@@ -117,6 +144,20 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
         }
 
         const latestMessage = latestByConversation.get(c.id);
+        const metrics = isTherapistMode && otherId ? (metricsByUser.get(otherId) || []) : [];
+        const latestMetric = metrics[0];
+        const riskLevel = isTherapistMode
+          ? assessCareRisk(metrics.slice(0, 5)).level
+          : null;
+        const lastCheckInAt = latestMetric?.created_at ? new Date(latestMetric.created_at).getTime() : null;
+        const overdueCheckIn = isTherapistMode
+          ? (!lastCheckInAt || Date.now() - lastCheckInAt > (48 * 60 * 60 * 1000))
+          : false;
+        const lastManualNudgeAt = latestNudgeByUser.get(otherId || '');
+        const nudgeDue = isTherapistMode
+          ? (riskLevel !== 'stable' && (!lastManualNudgeAt || (Date.now() - new Date(lastManualNudgeAt).getTime() > 24 * 60 * 60 * 1000)))
+          : false;
+
         return {
           id: c.id,
           other_id: otherId,
@@ -127,6 +168,9 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
           unread: false,
           awaiting_reply: Boolean(latestMessage && latestMessage.sender_id !== user.id),
           recent_mood: isTherapistMode && otherId ? latestMoodByUser.get(otherId) || null : null,
+          risk_level: riskLevel,
+          overdue_checkin: overdueCheckIn,
+          nudge_due: nudgeDue,
         };
       });
 
@@ -166,6 +210,12 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
         therapistName: item.other_name,
         therapistAvatar: item.other_avatar,
         therapistId: item.other_id,
+        attentionCue: {
+          riskLevel: item.risk_level,
+          recentMood: item.recent_mood,
+          overdueCheckIn: item.overdue_checkin,
+          nudgeDue: item.nudge_due,
+        },
       })}
       activeOpacity={0.7}
     >
@@ -178,13 +228,19 @@ export const MessagesListScreen: React.FC<{ navigation: any }> = ({ navigation }
         <Text style={styles.convPreview} numberOfLines={1}>
           {item.last_message || 'Start a conversation'}
         </Text>
-        {(item.awaiting_reply || item.recent_mood) && (
+        {(item.awaiting_reply || item.recent_mood || item.overdue_checkin || item.nudge_due) && (
           <View style={styles.metaRow}>
             {item.awaiting_reply ? (
               <Text style={styles.awaitingReply}>Awaiting your reply</Text>
             ) : null}
             {item.recent_mood ? (
-              <Text style={styles.recentMood}>Recent mood: {item.recent_mood}</Text>
+              <Text style={styles.metaChip}>{item.recent_mood}</Text>
+            ) : null}
+            {item.overdue_checkin ? (
+              <Text style={[styles.metaChip, styles.metaChipWarning]}>Check-in overdue</Text>
+            ) : null}
+            {item.nudge_due ? (
+              <Text style={[styles.metaChip, styles.metaChipNudge]}>Nudge due</Text>
             ) : null}
           </View>
         )}
@@ -256,7 +312,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.stroke.subtle,
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.ui.glass,
   },
   convContent: { flex: 1 },
   convHeader: {
@@ -281,9 +337,26 @@ const styles = StyleSheet.create({
     ...Typography.micro,
     color: Colors.status.warning,
   },
-  recentMood: {
+  metaChip: {
     ...Typography.micro,
-    color: Colors.accent.primary,
+    color: Colors.accent.dark,
+    borderWidth: 1,
+    borderColor: Colors.accent.primary + '34',
+    backgroundColor: Colors.accent.soft,
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.xs,
+    paddingVertical: 2,
+    overflow: 'hidden',
+  },
+  metaChipWarning: {
+    color: Colors.status.warning,
+    borderColor: Colors.status.warning + '45',
+    backgroundColor: Colors.status.warningSoft,
+  },
+  metaChipNudge: {
+    color: Colors.status.success,
+    borderColor: Colors.status.success + '45',
+    backgroundColor: Colors.status.successSoft,
   },
   separator: {
     height: Spacing.xs,
