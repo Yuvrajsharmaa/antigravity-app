@@ -14,7 +14,8 @@ import { ensureConversation, fetchActiveTherapistLock, setTherapistLockAction } 
 
 export const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const tabSafeBottomPadding = useTabSafeBottomPadding(Spacing.xxxl);
+  const tabBarHeight = useTabSafeBottomPadding(0);
+  const footerBottomPadding = tabBarHeight + Spacing.md;
   const {
     profile,
     user,
@@ -251,7 +252,8 @@ export const ProfileScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabSafeBottomPadding }]}
+        style={styles.scroll}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: footerBottomPadding + Spacing.xxl }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -376,7 +378,9 @@ export const ProfileScreen: React.FC = () => {
           </Text>
         </View>
 
-        {/* Sign out */}
+      </ScrollView>
+
+      <View style={[styles.footer, { paddingBottom: footerBottomPadding }]}>
         <Button
           title="Sign out"
           onPress={handleSignOut}
@@ -385,9 +389,8 @@ export const ProfileScreen: React.FC = () => {
           icon={<Ionicons name="log-out-outline" size={18} color={Colors.text.inverse} />}
           style={styles.signOutBtn}
         />
-
         <Text style={styles.version}>Care Space v1.1.0</Text>
-      </ScrollView>
+      </View>
 
       <CoveModal
         visible={modalState.visible}
@@ -404,6 +407,9 @@ export const ProfileScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.bg.primary },
+  scroll: {
+    flex: 1,
+  },
   scrollContent: {
     flexGrow: 1,
     paddingBottom: Spacing.xxxxl + Spacing.xl,
@@ -522,5 +528,11 @@ const styles = StyleSheet.create({
     color: Colors.text.tertiary,
     textAlign: 'center',
     marginTop: Spacing.lg,
+  },
+  footer: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.stroke.subtle,
+    backgroundColor: Colors.bg.primary,
+    paddingTop: Spacing.sm,
   },
 });

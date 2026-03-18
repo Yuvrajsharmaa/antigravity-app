@@ -954,20 +954,22 @@ export const TherapistMatchScreen: React.FC<{ navigation: any }> = ({ navigation
                 </Card>
               ) : null}
 
-              <ScrollView
-                horizontal
-                pagingEnabled
-                decelerationRate="fast"
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.deckRow}
-              >
-                {topMatches.map((item) => renderMatchCard(item, true))}
-                {renderMoreCard()}
-                {visibleAdditionalMatches.map((item) => renderMatchCard(item, false))}
-              </ScrollView>
-            </>
-          )}
-        </ScrollView>
+	              <ScrollView
+	                horizontal
+	                pagingEnabled
+	                decelerationRate="fast"
+	                showsHorizontalScrollIndicator={false}
+	                style={{ marginBottom: tabSafeBottomPadding }}
+	                contentContainerStyle={styles.deckRow}
+	              >
+	                {topMatches.map((item) => renderMatchCard(item, true))}
+	                {!showMoreMatches ? renderMoreCard() : null}
+	                {visibleAdditionalMatches.map((item) => renderMatchCard(item, false))}
+	                {showMoreMatches ? renderMoreCard() : null}
+	              </ScrollView>
+	            </>
+	          )}
+	        </ScrollView>
       )}
 
       <Modal visible={Boolean(introTarget)} transparent animationType="slide" onRequestClose={() => setIntroTarget(null)}>
@@ -1417,11 +1419,11 @@ const styles = StyleSheet.create({
     ...Typography.captionEmphasis,
     color: Colors.text.inverse,
   },
-  moreCard: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 520,
-  },
+	  moreCard: {
+	    alignItems: 'center',
+	    justifyContent: 'center',
+	    minHeight: 420,
+	  },
   moreTitle: {
     ...Typography.title3,
     color: Colors.text.primary,

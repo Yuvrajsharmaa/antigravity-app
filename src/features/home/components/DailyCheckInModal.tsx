@@ -360,7 +360,6 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
       await scheduleAdaptiveWellbeingReminders(user.id);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      onSuccess();
       showFeedback(
         'success',
         isEditingToday ? 'Check-in updated' : 'Check-in saved',
@@ -400,7 +399,7 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
                 style={[
                   styles.sheet,
                   {
-                    maxHeight: sheetMaxHeight,
+                    height: sheetMaxHeight,
                     marginTop: insets.top + Spacing.md,
                     paddingBottom: Math.max(insets.bottom + Spacing.xs, Spacing.lg),
                   },
@@ -611,6 +610,7 @@ export const DailyCheckInModal: React.FC<DailyCheckInModalProps> = ({
             const wasSuccess = feedbackModal.variant === 'success';
             setFeedbackModal((prev) => ({ ...prev, visible: false }));
             if (wasSuccess) {
+              onSuccess();
               closeModal();
             }
           },
