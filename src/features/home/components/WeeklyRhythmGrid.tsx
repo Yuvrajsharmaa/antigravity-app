@@ -26,7 +26,7 @@ export const WeeklyRhythmGrid: React.FC<{ days: WeeklyRhythmDay[] }> = ({ days }
       : 'transparent';
     return (
       <View style={cellStyle}>
-        <Ionicons name="checkmark" size={10} color={iconColor} />
+        <Ionicons name="checkmark" size={8} color={iconColor} />
       </View>
     );
   };
@@ -35,39 +35,50 @@ export const WeeklyRhythmGrid: React.FC<{ days: WeeklyRhythmDay[] }> = ({ days }
     <View style={styles.grid}>
       <View style={styles.row}>
         <View style={styles.rowLabelSpacer} />
-        {days.map((day, idx) => (
-          <Text key={`dow-${idx}`} style={styles.dayLabel}>
-            {day.label}
-          </Text>
-        ))}
+        <View style={styles.cellsRow}>
+          {days.map((day, idx) => (
+            <View key={`dow-wrap-${idx}`} style={styles.cellWrap}>
+              <Text style={styles.dayLabel}>{day.label}</Text>
+            </View>
+          ))}
+        </View>
       </View>
 
       <View style={styles.row}>
         <Text style={styles.rowLabel}>Check-in</Text>
-        {days.map((day, idx) => (
-          <View key={`care-${idx}`} style={styles.cellWrap}>
-            {renderCell(day.careDone, 'care', day.isToday)}
-          </View>
-        ))}
+        <View style={styles.cellsRow}>
+          {days.map((day, idx) => (
+            <View key={`care-${idx}`} style={styles.cellWrap}>
+              {renderCell(day.careDone, 'care', day.isToday)}
+            </View>
+          ))}
+        </View>
       </View>
 
       <View style={styles.row}>
         <Text style={styles.rowLabel}>Journal</Text>
-        {days.map((day, idx) => (
-          <View key={`journal-${idx}`} style={styles.cellWrap}>
-            {renderCell(day.journalDone, 'journal', day.isToday)}
-          </View>
-        ))}
+        <View style={styles.cellsRow}>
+          {days.map((day, idx) => (
+            <View key={`journal-${idx}`} style={styles.cellWrap}>
+              {renderCell(day.journalDone, 'journal', day.isToday)}
+            </View>
+          ))}
+        </View>
       </View>
     </View>
   );
 };
 
 const LABEL_COL = 68;
+const CELL_SIZE = 22;
+const CELL_GAP = 8;
+const DAYS = 7;
+const CELLS_ROW_WIDTH = (CELL_SIZE * DAYS) + (CELL_GAP * (DAYS - 1));
 
 const styles = StyleSheet.create({
   grid: {
     gap: Spacing.xs,
+    alignSelf: 'flex-start',
   },
   row: {
     flexDirection: 'row',
@@ -79,41 +90,47 @@ const styles = StyleSheet.create({
   },
   rowLabel: {
     width: LABEL_COL,
-    ...Typography.micro,
+    ...Typography.caption,
     color: Colors.text.tertiary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    textTransform: 'none',
+    letterSpacing: 0,
   },
   dayLabel: {
-    flex: 1,
-    ...Typography.micro,
+    ...Typography.caption,
     color: Colors.text.tertiary,
     textAlign: 'center',
   },
+  cellsRow: {
+    width: CELLS_ROW_WIDTH,
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    gap: CELL_GAP,
+  },
   cellWrap: {
-    flex: 1,
+    width: CELL_SIZE,
+    height: CELL_SIZE,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   cell: {
-    width: '100%',
-    aspectRatio: 1,
+    width: CELL_SIZE,
+    height: CELL_SIZE,
     borderRadius: Radius.sm,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    maxWidth: 32,
   },
   cellIdle: {
-    backgroundColor: Colors.bg.secondary,
+    backgroundColor: Colors.bg.tertiary,
     borderColor: Colors.stroke.medium,
   },
   cellCareDone: {
-    backgroundColor: Colors.accent.soft,
-    borderColor: Colors.accent.primary,
+    backgroundColor: '#EEF6F2',
+    borderColor: Colors.accent.primary + '55',
   },
   cellJournalDone: {
-    backgroundColor: Colors.status.warningSoft,
-    borderColor: Colors.status.warning,
+    backgroundColor: '#F8F3EA',
+    borderColor: Colors.status.warning + '55',
   },
   cellTodayRing: {
     borderWidth: 2,

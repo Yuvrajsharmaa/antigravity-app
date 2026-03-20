@@ -11,6 +11,10 @@ export interface Profile {
   role: AppRole;
   first_name: string | null;
   display_name: string | null;
+  handle?: string | null;
+  bio?: string | null;
+  links?: string[];
+  is_private?: boolean;
   avatar_url: string | null;
   email: string | null;
   language: string;
@@ -54,6 +58,7 @@ export interface Therapist {
   chat_fee_inr: number | null;
   is_verified: boolean;
   is_active: boolean;
+  allow_community_dm_requests?: boolean;
   featured_rank: number;
   rating: number | null;
   created_at: string;
@@ -352,6 +357,141 @@ export interface ConversationHealthState {
   recentMood: string | null;
 }
 
+export type HomePrimaryGoal =
+  | 'book_intro'
+  | 'join_session'
+  | 'check_in'
+  | 'message_therapist'
+  | 'journal'
+  | 'open_community'
+  | 'find_match';
+
+export interface CommunityPulseItem {
+  id: string;
+  topicTitle: string;
+  authorAlias: string;
+  bodyPreview: string;
+  createdAt: string;
+  likesCount: number;
+  commentsCount: number;
+}
+
+export interface HomePersonalizationState {
+  primaryGoal: HomePrimaryGoal;
+  reason: string;
+  cta: string;
+  sessionWindow: {
+    open: boolean;
+    startsAt: string | null;
+    minutesUntilOpen: number | null;
+  } | null;
+  communityPulse: CommunityPulseItem[];
+}
+
+export type CommunityModerationState = 'approved' | 'blocked' | 'pending_review';
+
+export interface CommunityTopic {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface CommunityPost {
+  id: string;
+  author_id: string;
+  author_alias: string;
+  role_badge: 'member' | 'therapist' | 'admin';
+  topic_id: string;
+  body: string;
+  moderation_state: CommunityModerationState;
+  moderation_reason: string | null;
+  crisis_flag: boolean;
+  likes_count: number;
+  comments_count: number;
+  reposts_count: number;
+  shares_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CommunityPostMedia {
+  id: string;
+  post_id: string | null;
+  comment_id: string | null;
+  media_type: 'image' | 'gif';
+  media_url: string;
+  media_thumb_url: string | null;
+  width: number | null;
+  height: number | null;
+  sort_index: number;
+  created_by: string;
+  created_at: string;
+}
+
+export interface CommunityComment {
+  id: string;
+  post_id: string;
+  author_id: string;
+  author_alias: string;
+  role_badge: 'member' | 'therapist' | 'admin';
+  body: string;
+  moderation_state: CommunityModerationState;
+  moderation_reason: string | null;
+  crisis_flag: boolean;
+  created_at: string;
+}
+
+export interface CommunityReaction {
+  post_id: string;
+  user_id: string;
+  reaction_type: 'like';
+  created_at: string;
+}
+
+export interface CommunityFeedItem {
+  post: CommunityPost;
+  topic: Pick<CommunityTopic, 'id' | 'slug' | 'title'>;
+  viewerLiked: boolean;
+  viewerFollowingAuthor?: boolean;
+  authorProfile?: Pick<Profile, 'id' | 'display_name' | 'first_name' | 'avatar_url' | 'handle' | 'role'> | null;
+  media?: CommunityPostMedia[];
+  rankScore: number;
+}
+
+export type CommunityFeedSort = 'top' | 'recent';
+
+export interface CommunityDmThread {
+  id: string;
+  user_a: string;
+  user_b: string;
+  initiator_id: string;
+  receiver_id: string;
+  request_status: 'pending' | 'accepted' | 'declined';
+  status_reason: string | null;
+  last_message_at: string | null;
+  created_at: string;
+  updated_at: string;
+  other_profile?: Pick<Profile, 'id' | 'display_name' | 'first_name' | 'avatar_url' | 'role'>;
+  last_message?: CommunityDmMessage | null;
+}
+
+export interface CommunityDmMessage {
+  id: string;
+  thread_id: string;
+  sender_id: string;
+  body: string;
+  media_url: string | null;
+  media_type: 'image' | 'gif' | null;
+  moderation_state: CommunityModerationState;
+  moderation_reason: string | null;
+  crisis_flag: boolean;
+  created_at: string;
+  read_at: string | null;
+}
+
 export interface RoleModeContract {
   role: AppRole;
   canUseTherapistMode: boolean;
@@ -413,6 +553,15 @@ export interface TherapistMatchRequest {
   client_name?: string | null;
   client_avatar?: string | null;
   therapist_name?: string | null;
+}
+
+export type MatchRequestConversationState = 'pending' | 'accepted' | 'declined' | 'booked' | null;
+
+export interface IntroBookingEligibility {
+  state: MatchRequestConversationState;
+  requestId: string | null;
+  introQuestion: string | null;
+  canBookIntro: boolean;
 }
 
 export interface HomeUpdateItem {
