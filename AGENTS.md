@@ -1,4 +1,4 @@
-# AGENTS.md (Antigravity Capstone)
+# AGENTS.md (CareSpace Capstone)
 
 These are repo-local instructions for Codex when working in this repository.
 

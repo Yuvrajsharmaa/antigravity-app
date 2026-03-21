@@ -1,4 +1,4 @@
-# UX Flows And Decisions (Care Space)
+# UX Flows And Decisions (CareSpace)
 
 This doc is a working design/UX audit meant to keep the app coherent as we iterate.
 
