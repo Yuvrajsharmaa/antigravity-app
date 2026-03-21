@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
@@ -44,6 +44,21 @@ export const AppSheet: React.FC<AppSheetProps> = ({
   const [renderVisible, setRenderVisible] = useState(visible);
   const progress = useRef(new Animated.Value(0)).current;
   const drag = useRef(new Animated.Value(0)).current;
+  const sideRef = useRef<SheetSide>(side);
+  const swipeToCloseRef = useRef(swipeToClose);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    sideRef.current = side;
+  }, [side]);
+
+  useEffect(() => {
+    swipeToCloseRef.current = swipeToClose;
+  }, [swipeToClose]);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     drag.setValue(0);
@@ -76,41 +91,43 @@ export const AppSheet: React.FC<AppSheetProps> = ({
     outputRange: [side === 'right' ? Math.min(420, screen.width) : Math.min(520, screen.height), 0],
   });
 
-  const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gesture) => {
-      if (!swipeToClose) return false;
-      if (side === 'right') {
-        return gesture.dx > 6 && Math.abs(gesture.dx) > Math.abs(gesture.dy);
-      }
-      return gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx);
-    },
-    onMoveShouldSetPanResponderCapture: (_, gesture) => {
-      if (!swipeToClose) return false;
-      if (side === 'right') {
-        return gesture.dx > 6 && Math.abs(gesture.dx) > Math.abs(gesture.dy);
-      }
-      return gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx);
-    },
-    onPanResponderTerminationRequest: () => false,
-    onPanResponderMove: (_, gesture) => {
-      const delta = side === 'right' ? gesture.dx : gesture.dy;
-      drag.setValue(Math.max(0, delta));
-    },
-    onPanResponderRelease: (_, gesture) => {
-      const distance = Math.max(0, side === 'right' ? gesture.dx : gesture.dy);
-      const velocity = side === 'right' ? gesture.vx : gesture.vy;
-      if (distance > 92 || velocity > 1.05) {
-        onClose();
-        return;
-      }
-      Animated.spring(drag, {
-        toValue: 0,
-        useNativeDriver: true,
-        speed: 22,
-        bounciness: 5,
-      }).start();
-    },
-  }), [drag, onClose, side, swipeToClose]);
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) => {
+        if (!swipeToCloseRef.current) return false;
+        if (sideRef.current === 'right') {
+          return gesture.dx > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1;
+        }
+        return gesture.dy > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.1;
+      },
+      onMoveShouldSetPanResponderCapture: (_, gesture) => {
+        if (!swipeToCloseRef.current) return false;
+        if (sideRef.current === 'right') {
+          return gesture.dx > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1;
+        }
+        return gesture.dy > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.1;
+      },
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderMove: (_, gesture) => {
+        const axis = sideRef.current === 'right' ? gesture.dx : gesture.dy;
+        drag.setValue(Math.max(0, axis));
+      },
+      onPanResponderRelease: (_, gesture) => {
+        const axisDistance = Math.max(0, sideRef.current === 'right' ? gesture.dx : gesture.dy);
+        const axisVelocity = sideRef.current === 'right' ? gesture.vx : gesture.vy;
+        if (axisDistance > 92 || axisVelocity > 1.05) {
+          onCloseRef.current();
+          return;
+        }
+        Animated.spring(drag, {
+          toValue: 0,
+          useNativeDriver: true,
+          speed: 22,
+          bounciness: 5,
+        }).start();
+      },
+    }),
+  ).current;
 
   const translateTransform = side === 'right'
     ? { transform: [{ translateX: Animated.add(baseTranslate, drag) }] }
@@ -123,6 +140,7 @@ export const AppSheet: React.FC<AppSheetProps> = ({
       visible={renderVisible}
       transparent
       animationType="none"
+      statusBarTranslucent
       onRequestClose={onClose}
     >
       <View style={styles.root}>

@@ -77,6 +77,13 @@ export const CommunityFeedScreen: React.FC<{ navigation: any }> = ({ navigation 
   const [messageSheetVisible, setMessageSheetVisible] = useState(false);
   const [messageDraft, setMessageDraft] = useState('Hey, your post resonated with me. Open to chat?');
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!actionFeedback) return undefined;
+    const timeout = setTimeout(() => setActionFeedback(null), 2400);
+    return () => clearTimeout(timeout);
+  }, [actionFeedback]);
 
   const getAnim = (postId: string) => {
     if (!likeAnimRef.current[postId]) {
@@ -187,6 +194,7 @@ export const CommunityFeedScreen: React.FC<{ navigation: any }> = ({ navigation 
           : row
       )));
       setActivePost((prev) => (prev ? { ...prev, viewerFollowingAuthor: !prev.viewerFollowingAuthor } : prev));
+      setActionFeedback(activePost.viewerFollowingAuthor ? 'Unfollowed member.' : 'Following member.');
       setActionSheetVisible(false);
     } catch (err: any) {
       setError(err?.message || 'Unable to update follow state.');
@@ -202,6 +210,7 @@ export const CommunityFeedScreen: React.FC<{ navigation: any }> = ({ navigation 
           ? { ...row, post: { ...row.post, reposts_count: row.post.reposts_count + 1 } }
           : row
       )));
+      setActionFeedback('Reposted to your profile.');
     } catch {
       // Keep UI stable.
     }
@@ -218,6 +227,7 @@ export const CommunityFeedScreen: React.FC<{ navigation: any }> = ({ navigation 
           ? { ...row, post: { ...row.post, shares_count: row.post.shares_count + 1 } }
           : row
       )));
+      setActionFeedback('Share sheet opened.');
     } catch {
       // No-op.
     }
@@ -234,6 +244,7 @@ export const CommunityFeedScreen: React.FC<{ navigation: any }> = ({ navigation 
       });
       setMessageSheetVisible(false);
       setActionSheetVisible(false);
+      setActionFeedback('Message request sent.');
       navigation.navigate('MessagesTab', { screen: 'MessagesList' });
     } catch (err: any) {
       setError(err?.message || 'Unable to send message request.');
@@ -288,6 +299,8 @@ export const CommunityFeedScreen: React.FC<{ navigation: any }> = ({ navigation 
           );
         })}
       </ScrollView>
+
+      {actionFeedback ? <Text style={styles.actionFeedback}>{actionFeedback}</Text> : null}
 
       {loading ? (
         <LoadingState message="Loading community..." style={styles.stateWrap} />
@@ -458,8 +471,9 @@ export const CommunityFeedScreen: React.FC<{ navigation: any }> = ({ navigation 
                 postId: activePost.post.id,
                 reason: 'reported_from_mobile_sheet',
               });
+              setActionFeedback('Report submitted for review.');
             } catch {
-              // No-op.
+              setError('Unable to submit report right now.');
             } finally {
               setActionSheetVisible(false);
             }
@@ -563,6 +577,12 @@ const styles = StyleSheet.create({
   },
   topicChip: {
     maxWidth: 170,
+  },
+  actionFeedback: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    paddingHorizontal: Spacing.xl,
+    paddingBottom: Spacing.xs,
   },
   listContent: {
     paddingHorizontal: Spacing.xl,

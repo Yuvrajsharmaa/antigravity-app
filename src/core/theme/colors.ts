@@ -1,10 +1,9 @@
 export const Colors = {
   bg: {
-    // "Paper" canvas. Keep this warm to avoid the default cold-app-grey look.
-    primary: '#F2F1EE',
+    // White-first canvas for an Airbnb-like surface hierarchy.
+    primary: '#FFFFFF',
     secondary: '#FFFFFF',
-    tertiary: '#EBE9E4',
-    coralWash: '#F6EDEA',
+    tertiary: '#F7F7F7',
     mintWash: '#EAF4EE',
     skyWash: '#E9F2FA',
     brownDark: '#4E3E31',
@@ -26,7 +25,6 @@ export const Colors = {
     primary: '#4E7D68',
     soft: '#E6F2EC',
     dark: '#3B5F4F',
-    coral: '#C26B5A',
     mint: '#DDEFE6',
     sky: '#DCECF8',
     amber: '#F2E7D5',
@@ -44,7 +42,7 @@ export const Colors = {
   semantic: {
     success: '#2F7A58',
     effort: '#8A6A3D',
-    streak: '#C26B5A',
+    streak: '#7B5D35',
     warning: '#8A6A3D',
     insight: '#3B6F8B',
     calm: '#4E7D68',
@@ -53,7 +51,7 @@ export const Colors = {
   semanticSoft: {
     success: '#E9F6EF',
     effort: '#F7F1E6',
-    streak: '#FBEDE7',
+    streak: '#F3E9D7',
     warning: '#F7F1E6',
     insight: '#E9F2FA',
     calm: '#E6F2EC',
@@ -61,8 +59,11 @@ export const Colors = {
   },
   ui: {
     overlay: 'rgba(18,21,19,0.36)',
+    overlayStrong: 'rgba(18,21,19,0.6)',
     shimmer: '#E7E6E1',
     divider: '#E2DFD9',
     glass: 'rgba(255,255,255,0.86)',
+    glassStrong: 'rgba(255,255,255,0.92)',
+    strokeInverseSoft: 'rgba(255,255,255,0.2)',
   },
 };

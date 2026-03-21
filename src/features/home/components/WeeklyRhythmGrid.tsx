@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, Spacing, Typography } from '../../../core/theme';
+import { Colors, Spacing, Typography } from '../../../core/theme';
 
 export type WeeklyRhythmDay = {
   label: string;
@@ -26,7 +26,7 @@ export const WeeklyRhythmGrid: React.FC<{ days: WeeklyRhythmDay[] }> = ({ days }
       : 'transparent';
     return (
       <View style={cellStyle}>
-        <Ionicons name="checkmark" size={8} color={iconColor} />
+        <Ionicons name="checkmark" size={9} color={iconColor} />
       </View>
     );
   };
@@ -70,7 +70,7 @@ export const WeeklyRhythmGrid: React.FC<{ days: WeeklyRhythmDay[] }> = ({ days }
 };
 
 const LABEL_COL = 68;
-const CELL_SIZE = 22;
+const CELL_SIZE = 20;
 const CELL_GAP = 8;
 const DAYS = 7;
 const CELLS_ROW_WIDTH = (CELL_SIZE * DAYS) + (CELL_GAP * (DAYS - 1));
@@ -94,6 +94,7 @@ const styles = StyleSheet.create({
     color: Colors.text.tertiary,
     textTransform: 'none',
     letterSpacing: 0,
+    lineHeight: 18,
   },
   dayLabel: {
     ...Typography.caption,
@@ -115,7 +116,7 @@ const styles = StyleSheet.create({
   cell: {
     width: CELL_SIZE,
     height: CELL_SIZE,
-    borderRadius: Radius.sm,
+    borderRadius: 6,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -125,11 +126,11 @@ const styles = StyleSheet.create({
     borderColor: Colors.stroke.medium,
   },
   cellCareDone: {
-    backgroundColor: '#EEF6F2',
+    backgroundColor: Colors.accent.soft,
     borderColor: Colors.accent.primary + '55',
   },
   cellJournalDone: {
-    backgroundColor: '#F8F3EA',
+    backgroundColor: Colors.status.warningSoft,
     borderColor: Colors.status.warning + '55',
   },
   cellTodayRing: {

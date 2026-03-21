@@ -9,6 +9,7 @@ interface PillChipProps {
   selected?: boolean;
   onPress?: () => void;
   style?: ViewStyle;
+  numberOfLines?: number;
 }
 
 export const PillChip: React.FC<PillChipProps> = ({
@@ -16,6 +17,7 @@ export const PillChip: React.FC<PillChipProps> = ({
   selected = false,
   onPress,
   style,
+  numberOfLines = 1,
 }) => (
   <TouchableOpacity
     style={[
@@ -29,7 +31,11 @@ export const PillChip: React.FC<PillChipProps> = ({
     accessibilityLabel={label}
     accessibilityState={{ selected }}
   >
-    <Text style={[styles.label, selected ? styles.selectedLabel : styles.unselectedLabel]}>
+    <Text
+      style={[styles.label, selected ? styles.selectedLabel : styles.unselectedLabel]}
+      numberOfLines={numberOfLines}
+      ellipsizeMode="tail"
+    >
       {label}
     </Text>
   </TouchableOpacity>
@@ -37,13 +43,17 @@ export const PillChip: React.FC<PillChipProps> = ({
 
 const styles = StyleSheet.create({
   chip: {
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.md,
+    paddingVertical: 5,
+    paddingHorizontal: Spacing.sm,
     borderRadius: Radius.pill,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 36,
+    minHeight: 30,
+    maxHeight: 34,
+    alignSelf: 'flex-start',
+    flexShrink: 1,
+    maxWidth: 196,
   },
   selected: {
     backgroundColor: Colors.accent.soft,
@@ -55,6 +65,7 @@ const styles = StyleSheet.create({
   },
   label: {
     ...Typography.captionEmphasis,
+    lineHeight: 18,
   },
   selectedLabel: {
     color: Colors.accent.dark,

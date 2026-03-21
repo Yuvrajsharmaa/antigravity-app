@@ -32,6 +32,7 @@ import {
 import { supabase } from '../../services/supabase';
 
 type ProfileTab = 'posts' | 'replies' | 'media' | 'reposts';
+type SettingsPane = 'account' | 'professional' | 'availability';
 
 const makeHandle = (displayName?: string | null) => {
   if (!displayName) return '';
@@ -100,6 +101,7 @@ export const ProfileScreen: React.FC = () => {
   const [activeLock, setActiveLock] = React.useState<ActiveTherapistLock | null>(null);
   const [activeTab, setActiveTab] = React.useState<ProfileTab>('posts');
   const [settingsVisible, setSettingsVisible] = React.useState(false);
+  const [settingsPane, setSettingsPane] = React.useState<SettingsPane>('account');
   const [loadingContent, setLoadingContent] = React.useState(true);
   const [threads, setThreads] = React.useState<any[]>([]);
   const [replies, setReplies] = React.useState<any[]>([]);
@@ -355,6 +357,7 @@ export const ProfileScreen: React.FC = () => {
 
   React.useEffect(() => {
     if (settingsVisible) {
+      setSettingsPane('account');
       loadTherapistSettings();
     }
   }, [loadTherapistSettings, settingsVisible]);
@@ -422,7 +425,7 @@ export const ProfileScreen: React.FC = () => {
   const shareProfile = async () => {
     const handle = profile?.handle || makeHandle(profile?.display_name || profile?.first_name) || 'member';
     await Share.share({
-      message: `Connect with me on Care Space community: @${handle}`,
+      message: `Connect with me on CareSpace community: @${handle}`,
     });
   };
 
@@ -804,7 +807,7 @@ export const ProfileScreen: React.FC = () => {
             variant="danger"
             icon={<Ionicons name="log-out-outline" size={18} color={Colors.text.inverse} />}
           />
-          <Text style={styles.version}>Care Space v1.1.0</Text>
+          <Text style={styles.version}>CareSpace v1.1.0</Text>
         </View>
       </ScrollView>
 
@@ -821,55 +824,75 @@ export const ProfileScreen: React.FC = () => {
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.sheetContent}
         >
-          <TouchableOpacity
-            style={styles.settingRow}
-            onPress={() => {
-              setSettingsVisible(false);
-              navigation.navigate('EditProfile');
-            }}
-          >
-            <Ionicons name="person-outline" size={18} color={Colors.text.secondary} />
-            <Text style={styles.settingLabel}>Edit profile</Text>
-            <Ionicons name="chevron-forward" size={16} color={Colors.text.tertiary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.settingRow}
-            onPress={() => {
-              setSettingsVisible(false);
-              navigation.navigate('Notifications');
-            }}
-          >
-            <Ionicons name="notifications-outline" size={18} color={Colors.text.secondary} />
-            <Text style={styles.settingLabel}>Notifications</Text>
-            <Ionicons name="chevron-forward" size={16} color={Colors.text.tertiary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.settingRow}
-            onPress={() => {
-              setSettingsVisible(false);
-              handleRestartOnboarding();
-            }}
-          >
-            <Ionicons name="refresh-outline" size={18} color={Colors.text.secondary} />
-            <Text style={styles.settingLabel}>View onboarding again</Text>
-            <Ionicons name="chevron-forward" size={16} color={Colors.text.tertiary} />
-          </TouchableOpacity>
-
-          {canUseTherapistMode ? (
-            <View style={styles.modeRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, flex: 1 }}>
-                <Ionicons name="medical-outline" size={18} color={Colors.accent.primary} />
-                <Text style={styles.settingLabel}>Therapist dashboard mode</Text>
-              </View>
-              <Switch
-                value={isTherapistMode}
-                onValueChange={toggleTherapistMode}
-                trackColor={{ false: Colors.stroke.medium, true: Colors.accent.primary }}
+          {isTherapistProfile ? (
+            <View style={styles.settingsPaneRow}>
+              <PillChip label="Account" selected={settingsPane === 'account'} onPress={() => setSettingsPane('account')} />
+              <PillChip
+                label="Professional"
+                selected={settingsPane === 'professional'}
+                onPress={() => setSettingsPane('professional')}
+              />
+              <PillChip
+                label="Availability"
+                selected={settingsPane === 'availability'}
+                onPress={() => setSettingsPane('availability')}
               />
             </View>
           ) : null}
 
-          {isTherapistProfile ? (
+          {settingsPane === 'account' ? (
+            <View style={styles.sheetGroup}>
+              <TouchableOpacity
+                style={styles.settingRow}
+                onPress={() => {
+                  setSettingsVisible(false);
+                  navigation.navigate('EditProfile');
+                }}
+              >
+                <Ionicons name="person-outline" size={18} color={Colors.text.secondary} />
+                <Text style={styles.settingLabel}>Edit profile</Text>
+                <Ionicons name="chevron-forward" size={16} color={Colors.text.tertiary} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.settingRow}
+                onPress={() => {
+                  setSettingsVisible(false);
+                  navigation.navigate('Notifications');
+                }}
+              >
+                <Ionicons name="notifications-outline" size={18} color={Colors.text.secondary} />
+                <Text style={styles.settingLabel}>Notifications</Text>
+                <Ionicons name="chevron-forward" size={16} color={Colors.text.tertiary} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.settingRow}
+                onPress={() => {
+                  setSettingsVisible(false);
+                  handleRestartOnboarding();
+                }}
+              >
+                <Ionicons name="refresh-outline" size={18} color={Colors.text.secondary} />
+                <Text style={styles.settingLabel}>View onboarding again</Text>
+                <Ionicons name="chevron-forward" size={16} color={Colors.text.tertiary} />
+              </TouchableOpacity>
+
+              {canUseTherapistMode ? (
+                <View style={styles.modeRow}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, flex: 1 }}>
+                    <Ionicons name="medical-outline" size={18} color={Colors.accent.primary} />
+                    <Text style={styles.settingLabel}>Therapist dashboard mode</Text>
+                  </View>
+                  <Switch
+                    value={isTherapistMode}
+                    onValueChange={toggleTherapistMode}
+                    trackColor={{ false: Colors.stroke.medium, true: Colors.accent.primary }}
+                  />
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          {isTherapistProfile && settingsPane === 'professional' ? (
             <>
               <View style={styles.formSection}>
                 <Text style={styles.sheetSectionTitle}>Professional profile</Text>
@@ -982,7 +1005,7 @@ export const ProfileScreen: React.FC = () => {
                 <View style={styles.modeRow}>
                   <View style={styles.modeTextBlock}>
                     <Text style={styles.settingLabel}>Allow community DM requests</Text>
-                    <Text style={styles.modeHint}>When off, new requests land as declined.</Text>
+                    <Text style={styles.modeHint}>When off, new requests are blocked for your profile.</Text>
                   </View>
                   <Switch
                     value={therapistForm.allowCommunityDmRequests}
@@ -997,122 +1020,124 @@ export const ProfileScreen: React.FC = () => {
                 loading={profileSaving}
                 disabled={profileSaving}
               />
+            </>
+          ) : null}
 
-              <View style={styles.formSection}>
-                <Text style={styles.sheetSectionTitle}>Availability</Text>
-                <Text style={styles.sheetSectionHint}>Add one-off slots or recurring weekly windows.</Text>
+          {isTherapistProfile && settingsPane === 'availability' ? (
+            <View style={styles.formSection}>
+              <Text style={styles.sheetSectionTitle}>Availability</Text>
+              <Text style={styles.sheetSectionHint}>Add one-off slots or recurring weekly windows.</Text>
 
-                {slotLoading ? <Text style={styles.emptyInline}>Loading slots...</Text> : null}
-                <View style={styles.slotTypeRow}>
-                  <PillChip label="Video" selected={slotType === 'video'} onPress={() => setSlotType('video')} />
-                  <PillChip label="Chat" selected={slotType === 'chat'} onPress={() => setSlotType('chat')} />
-                </View>
+              {slotLoading ? <Text style={styles.emptyInline}>Loading slots...</Text> : null}
+              <View style={styles.slotTypeRow}>
+                <PillChip label="Video" selected={slotType === 'video'} onPress={() => setSlotType('video')} />
+                <PillChip label="Chat" selected={slotType === 'chat'} onPress={() => setSlotType('chat')} />
+              </View>
 
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.fieldLabel}>One-off slot date</Text>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>One-off slot date</Text>
+                <TextInput
+                  style={styles.sheetInput}
+                  value={slotDate}
+                  onChangeText={setSlotDate}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={Colors.text.tertiary}
+                />
+              </View>
+
+              <View style={styles.inlineInputs}>
+                <View style={styles.inlineField}>
+                  <Text style={styles.fieldLabel}>Start</Text>
                   <TextInput
-                    style={styles.sheetInput}
-                    value={slotDate}
-                    onChangeText={setSlotDate}
-                    placeholder="YYYY-MM-DD"
+                    style={[styles.sheetInput, styles.inlineInput]}
+                    value={slotStartTime}
+                    onChangeText={setSlotStartTime}
+                    placeholder="HH:MM"
                     placeholderTextColor={Colors.text.tertiary}
                   />
                 </View>
-
-                <View style={styles.inlineInputs}>
-                  <View style={styles.inlineField}>
-                    <Text style={styles.fieldLabel}>Start</Text>
-                    <TextInput
-                      style={[styles.sheetInput, styles.inlineInput]}
-                      value={slotStartTime}
-                      onChangeText={setSlotStartTime}
-                      placeholder="HH:MM"
-                      placeholderTextColor={Colors.text.tertiary}
-                    />
-                  </View>
-                  <View style={styles.inlineField}>
-                    <Text style={styles.fieldLabel}>End</Text>
-                    <TextInput
-                      style={[styles.sheetInput, styles.inlineInput]}
-                      value={slotEndTime}
-                      onChangeText={setSlotEndTime}
-                      placeholder="HH:MM"
-                      placeholderTextColor={Colors.text.tertiary}
-                    />
-                  </View>
+                <View style={styles.inlineField}>
+                  <Text style={styles.fieldLabel}>End</Text>
+                  <TextInput
+                    style={[styles.sheetInput, styles.inlineInput]}
+                    value={slotEndTime}
+                    onChangeText={setSlotEndTime}
+                    placeholder="HH:MM"
+                    placeholderTextColor={Colors.text.tertiary}
+                  />
                 </View>
-                <Button title="Add one-off slot" onPress={addOneOffSlot} variant="secondary" />
+              </View>
+              <Button title="Add one-off slot" onPress={addOneOffSlot} variant="secondary" />
 
-                <Text style={styles.sheetSectionSubTitle}>Recurring weekly block</Text>
-                <View style={styles.weekdayWrap}>
-                  {weekdayOptions.map((option) => (
-                    <PillChip
-                      key={option.id}
-                      label={option.label}
-                      selected={recurringWeekday === option.id}
-                      onPress={() => setRecurringWeekday(option.id)}
-                    />
+              <Text style={styles.sheetSectionSubTitle}>Recurring weekly block</Text>
+              <View style={styles.weekdayWrap}>
+                {weekdayOptions.map((option) => (
+                  <PillChip
+                    key={option.id}
+                    label={option.label}
+                    selected={recurringWeekday === option.id}
+                    onPress={() => setRecurringWeekday(option.id)}
+                  />
+                ))}
+              </View>
+
+              <View style={styles.inlineInputs}>
+                <View style={styles.inlineField}>
+                  <Text style={styles.fieldLabel}>Start</Text>
+                  <TextInput
+                    style={[styles.sheetInput, styles.inlineInput]}
+                    value={recurringStartTime}
+                    onChangeText={setRecurringStartTime}
+                    placeholder="HH:MM"
+                    placeholderTextColor={Colors.text.tertiary}
+                  />
+                </View>
+                <View style={styles.inlineField}>
+                  <Text style={styles.fieldLabel}>End</Text>
+                  <TextInput
+                    style={[styles.sheetInput, styles.inlineInput]}
+                    value={recurringEndTime}
+                    onChangeText={setRecurringEndTime}
+                    placeholder="HH:MM"
+                    placeholderTextColor={Colors.text.tertiary}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Weeks ahead</Text>
+                <TextInput
+                  style={styles.sheetInput}
+                  keyboardType="numeric"
+                  value={recurringWeeks}
+                  onChangeText={setRecurringWeeks}
+                  placeholder="1-16"
+                  placeholderTextColor={Colors.text.tertiary}
+                />
+              </View>
+              <Button title="Add recurring slots" onPress={addRecurringSlots} variant="secondary" />
+
+              <Text style={styles.sheetSectionSubTitle}>Upcoming slots</Text>
+              {slots.length === 0 ? (
+                <Text style={styles.emptyInline}>No slots yet. Add one-off or recurring slots above.</Text>
+              ) : (
+                <View style={styles.slotList}>
+                  {slots.slice(0, 24).map((slot) => (
+                    <View key={slot.id} style={styles.slotRow}>
+                      <View style={styles.slotMetaWrap}>
+                        <Text style={styles.slotMain}>
+                          {formatSlotDate(slot.start_at)} · {formatSlotTime(slot.start_at)} - {formatSlotTime(slot.end_at)}
+                        </Text>
+                        <Text style={styles.slotSub}>{slot.slot_type === 'video' ? 'Video' : 'Chat'}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => removeSlot(slot.id)} style={styles.slotDeleteBtn}>
+                        <Ionicons name="trash-outline" size={18} color={Colors.status.danger} />
+                      </TouchableOpacity>
+                    </View>
                   ))}
                 </View>
-
-                <View style={styles.inlineInputs}>
-                  <View style={styles.inlineField}>
-                    <Text style={styles.fieldLabel}>Start</Text>
-                    <TextInput
-                      style={[styles.sheetInput, styles.inlineInput]}
-                      value={recurringStartTime}
-                      onChangeText={setRecurringStartTime}
-                      placeholder="HH:MM"
-                      placeholderTextColor={Colors.text.tertiary}
-                    />
-                  </View>
-                  <View style={styles.inlineField}>
-                    <Text style={styles.fieldLabel}>End</Text>
-                    <TextInput
-                      style={[styles.sheetInput, styles.inlineInput]}
-                      value={recurringEndTime}
-                      onChangeText={setRecurringEndTime}
-                      placeholder="HH:MM"
-                      placeholderTextColor={Colors.text.tertiary}
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.fieldLabel}>Weeks ahead</Text>
-                  <TextInput
-                    style={styles.sheetInput}
-                    keyboardType="numeric"
-                    value={recurringWeeks}
-                    onChangeText={setRecurringWeeks}
-                    placeholder="1-16"
-                    placeholderTextColor={Colors.text.tertiary}
-                  />
-                </View>
-                <Button title="Add recurring slots" onPress={addRecurringSlots} variant="secondary" />
-
-                <Text style={styles.sheetSectionSubTitle}>Upcoming slots</Text>
-                {slots.length === 0 ? (
-                  <Text style={styles.emptyInline}>No slots yet. Add one-off or recurring slots above.</Text>
-                ) : (
-                  <View style={styles.slotList}>
-                    {slots.slice(0, 24).map((slot) => (
-                      <View key={slot.id} style={styles.slotRow}>
-                        <View style={styles.slotMetaWrap}>
-                          <Text style={styles.slotMain}>
-                            {formatSlotDate(slot.start_at)} · {formatSlotTime(slot.start_at)} - {formatSlotTime(slot.end_at)}
-                          </Text>
-                          <Text style={styles.slotSub}>{slot.slot_type === 'video' ? 'Video' : 'Chat'}</Text>
-                        </View>
-                        <TouchableOpacity onPress={() => removeSlot(slot.id)} style={styles.slotDeleteBtn}>
-                          <Ionicons name="trash-outline" size={18} color={Colors.status.danger} />
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-            </>
+              )}
+            </View>
           ) : null}
         </ScrollView>
       </AppSheet>
@@ -1437,6 +1462,15 @@ const styles = StyleSheet.create({
   },
   sheetContent: {
     paddingBottom: Spacing.xxl,
+    gap: Spacing.sm,
+  },
+  settingsPaneRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+    marginBottom: Spacing.xs,
+  },
+  sheetGroup: {
     gap: Spacing.sm,
   },
   settingRow: {
